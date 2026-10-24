@@ -36,8 +36,20 @@ export type MusicKeyAction =
         | "nextPattern"
         | "previousPattern"
         /** FL's F8: the plugin picker, for a new channel's instrument (the rack's +). */
-        | "addChannel";
+        | "addChannel"
+        /** ⇧⌘P or F1: the command palette, everything the editor does by name. */
+        | "palette"
+        /** Ctrl+E: step edit, the notes played (MIDI or the typing keyboard) written at the Piano roll's cursor. */
+        | "toggleStepEdit"
+        /** The rack's step cursor: Enter turns the step under it on or off; Shift+Enter opens the channel. */
+        | "toggleStep"
+        | "openChannel";
     }
+  /** Alt+` (Shift: backwards): the next open window to the front, with the keyboard. */
+  | { type: "cycleWindow"; direction: -1 | 1 }
+  /** ← / →: the rack's step cursor along the selected channel's steps; Home / End: to its first or last. */
+  | { type: "stepCursor"; direction: -1 | 1 }
+  | { type: "stepCursorEdge"; edge: "start" | "end" }
   /** Mute or solo the nth channel of the rack (0 is the first). */
   | { type: "mute" | "solo"; index: number }
   /** Select the channel above (-1) or below (1); `extend` keeps what's selected. */
@@ -62,6 +74,12 @@ export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
   const horizontal = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : null;
 
   if (e.code === "Space") return only("togglePlay");
+  if ((letter === "P" && command && e.shiftKey && !e.altKey) || (e.key === "F1" && !command && !e.shiftKey && !e.altKey)) return { type: "palette" };
+  if (letter === "E" && command && !e.shiftKey && !e.altKey) return { type: "toggleStepEdit" };
+  if (e.code === "Backquote" && e.altKey && !command) return { type: "cycleWindow", direction: e.shiftKey ? -1 : 1 };
+  if (horizontal !== null && !command && !e.shiftKey && !e.altKey) return { type: "stepCursor", direction: horizontal };
+  if ((e.key === "Home" || e.key === "End") && !command && !e.shiftKey && !e.altKey) return { type: "stepCursorEdge", edge: e.key === "Home" ? "start" : "end" };
+  if (e.key === "Enter" && !command && !e.altKey) return { type: e.shiftKey ? "openChannel" : "toggleStep" };
   if (e.code === "NumpadAdd" && !command && !e.altKey) return { type: "nextPattern" };
   if (e.code === "NumpadSubtract" && !command && !e.altKey) return { type: "previousPattern" };
   if (e.key === "F5") return only("togglePlaylist");
@@ -129,6 +147,9 @@ const GLOBAL_KEYS: ReadonlySet<MusicKeyAction["type"]> = new Set([
   "nextPattern",
   "previousPattern",
   "addChannel",
+  "palette",
+  "toggleStepEdit",
+  "cycleWindow",
 ]);
 
 export const isGlobalKey = (action: MusicKeyAction) => GLOBAL_KEYS.has(action.type);

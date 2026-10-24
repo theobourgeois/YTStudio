@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useRef } from "react";
 import { addWindowListener } from "@/lib/window-events";
-import { PiCaretDownBold, PiGhost, PiMagnet, PiMagnifyingGlass, PiMusicNotes, PiStamp, PiWrench } from "react-icons/pi";
+import { PiCaretDownBold, PiFootprints, PiGhost, PiMagnet, PiMagnifyingGlass, PiMusicNotes, PiStamp, PiWrench } from "react-icons/pi";
+import { keyLabel } from "@/lib/key-labels";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
 import { editNotes, noteBounds } from "@shared/music/notes";
@@ -28,7 +29,7 @@ import { patternPositionNow } from "../playhead";
 import { useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
-import { chop, chopperResult, glue, legato, openChopper, openQuantizer, pianoChannel, pianoContext, quantize, quantizerResult } from "./actions";
+import { chop, chopperResult, glue, legato, openChopper, openQuantizer, pianoChannel, pianoContext, quantize, quantizerResult, toggleStepEdit } from "./actions";
 import { applyDrag, rectSelection } from "./drag";
 import { heldKeys, useMidi } from "../midi";
 import { type Scene, drawGrid, drawHandle, drawKeys, drawLane, drawRuler, prepare, readPalette, stretchHandle } from "./draw";
@@ -125,6 +126,7 @@ function PianoControls() {
   const tool = usePiano((s) => s.tool);
   const snap = usePiano((s) => s.snap);
   const ghosts = usePiano((s) => s.ghosts);
+  const stepEdit = usePiano((s) => s.stepEdit);
   return (
     <>
       <ToolsMenu />
@@ -172,6 +174,16 @@ function PianoControls() {
         onClick={() => usePiano.setState({ ghosts: !ghosts })}
       >
         <PiGhost className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        aria-label="Step edit"
+        aria-pressed={stepEdit}
+        title={`Step edit: the notes played (MIDI or the typing keyboard) written at the cursor (${keyLabel("⌘E")})`}
+        className={cn("grid size-5.5 place-items-center rounded-sm", stepEdit ? "pressed text-destructive" : "border border-transparent text-muted-foreground hover:raised hover:raised-hover")}
+        onClick={() => toggleStepEdit()}
+      >
+        <PiFootprints className="size-3.5" />
       </button>
     </>
   );
@@ -432,6 +444,7 @@ function PianoBody() {
         patternTicks: ctx.patternTicks,
         time: piano.time,
         drag,
+        cursor: piano.cursor && { ...piano.cursor, length: piano.noteLength, stepEdit: piano.stepEdit },
         palette,
       };
       const g = prepare(grid.current, width, height);
@@ -447,7 +460,7 @@ function PianoBody() {
         // The key the mouse holds, and those played on a keyboard on this channel.
         const held = new Set(heldKeys(ctx.channel.id));
         if (piano.heldKey !== null) held.add(piano.heldKey);
-        drawKeys(k, view, KEYS_W, height, palette, held);
+        drawKeys(k, view, KEYS_W, height, palette, held, piano.cursor?.pitch ?? null);
       }
       if (lane.current && piano.laneHeight) {
         const l = prepare(lane.current, width, piano.laneHeight);

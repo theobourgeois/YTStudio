@@ -42,7 +42,21 @@ export type PlaylistKeyAction =
   /** Move the patterns selected in the Picker up or down the song's list. */
   | { type: "movePatterns"; direction: -1 | 1 }
   | { type: "zoom"; factor: number }
-  | { type: "zoomPreset"; preset: 1 | 2 | 3 | 4 | 5 };
+  | { type: "zoomPreset"; preset: 1 | 2 | 3 | 4 | 5 }
+  /** The keyboard cursor: along by the grid, a track up or down. */
+  | { type: "cursor"; snaps: number; tracks: number }
+  /** End: the cursor to the song's end (Home is the song's start, `home`, and takes the cursor there too). */
+  | { type: "end" }
+  /** Enter: the Picker's pattern (or audio) at the cursor, then the cursor past it (`advance`); Alt+Enter keeps it there. */
+  | { type: "place"; advance: boolean }
+  /** Tab / Shift+Tab: the cursor to the next (previous) clip, which alone is selected. */
+  | { type: "nextClip"; direction: -1 | 1 }
+  /** X: the clip under the cursor in or out of the selection; Shift+X: every clip on its track. */
+  | { type: "toggleAtCursor" | "selectTrack" }
+  /** I / O: the time selection's start or end at the cursor. */
+  | { type: "markIn" | "markOut" }
+  /** F2: rename the cursor's track. */
+  | { type: "renameTrack" };
 
 type KeyLike = Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">;
 
@@ -58,6 +72,7 @@ export function resolvePlaylistKey(e: KeyLike): PlaylistKeyAction | null {
   const vertical = e.key === "ArrowUp" ? -1 : e.key === "ArrowDown" ? 1 : 0;
 
   if (horizontal || vertical) {
+    if (!command && !shift && !alt) return { type: "cursor", snaps: horizontal, tracks: vertical };
     if (shift && !command && !alt) return { type: "nudge", snaps: horizontal, tracks: vertical };
     if (command && !shift && !alt && horizontal) return { type: "shiftTime", direction: horizontal as -1 | 1 };
     if (alt && !command && !shift && vertical) return { type: "movePatterns", direction: vertical as -1 | 1 };
@@ -70,8 +85,11 @@ export function resolvePlaylistKey(e: KeyLike): PlaylistKeyAction | null {
   }
   if (e.key === "Escape") return { type: "close" };
   if (e.key === "Home" && !command && !shift && !alt) return { type: "home" };
+  if (e.key === "End" && !command && !shift && !alt) return { type: "end" };
+  if (e.key === "Tab" && !command && !alt) return { type: "nextClip", direction: shift ? -1 : 1 };
+  if (e.key === "F2" && !command && !shift && !alt) return { type: "renameTrack" };
   if (e.key === "PageUp" || e.key === "PageDown") return { type: "zoom", factor: e.key === "PageUp" ? 1.5 : 1 / 1.5 };
-  if (e.key === "Enter") return command && !shift ? { type: "timeAround" } : null;
+  if (e.key === "Enter") return command ? (shift ? null : { type: "timeAround" }) : shift ? null : { type: "place", advance: !alt };
 
   if (digit !== undefined && shift && !command && !alt) {
     if (digit === "0") return { type: "centre" };
@@ -93,10 +111,12 @@ export function resolvePlaylistKey(e: KeyLike): PlaylistKeyAction | null {
     return null;
   }
   if (shift) {
-    const shifted: Record<string, PlaylistKeyAction["type"]> = { I: "invert", C: "selectSimilar", Q: "quantize", M: "stretch" };
+    const shifted: Record<string, PlaylistKeyAction["type"]> = { I: "invert", C: "selectSimilar", Q: "quantize", M: "stretch", X: "selectTrack" };
     const type = shifted[letter];
     return type ? ({ type } as PlaylistKeyAction) : null;
   }
   if (TOOLS[letter]) return { type: "tool", tool: TOOLS[letter] };
+  if (letter === "X") return { type: "toggleAtCursor" };
+  if (letter === "I" || letter === "O") return { type: letter === "I" ? "markIn" : "markOut" };
   return null;
 }

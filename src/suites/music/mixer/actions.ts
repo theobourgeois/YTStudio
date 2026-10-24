@@ -528,3 +528,42 @@ export function assignAudioTracksTo(id: string) {
   const ids = selected.includes(id) ? selected : [id];
   useMusic.getState().commit((song) => assignAudioTracks(song, ids));
 }
+
+// ---------------------------------------------------------------------------
+// The keyboard's (`keys.ts`)
+// ---------------------------------------------------------------------------
+
+/** ↑ / ↓: the selected tracks' faders up or down a step (Ctrl: a fine one), each press one undo step. */
+export function nudgeVolume(direction: -1 | 1, fine: boolean) {
+  const doc = song();
+  if (!doc) return;
+  const ids = selectedTracks();
+  const step = (fine ? 0.005 : 0.025) * direction;
+  const values = new Map<string, number>();
+  for (const id of ids.length ? ids : [currentTrack()]) {
+    const track = getMixerTrack(doc, id);
+    if (track) values.set(id, Math.round(Math.min(1, Math.max(0, track.volume + step)) * 1000) / 1000);
+  }
+  if (values.size) commit((next) => setMixerControls(next, "volume", values));
+}
+
+/** M: the current track muted (the selected ones with it), or unmuted if it's muted. */
+export const muteCurrent = () => toggleTrackMute(currentTrack());
+
+/** How long after a digit the next one makes it a two-digit number (1 then 2: insert 12). */
+const DIGITS_MS = 600;
+let typed: { number: number; at: number } | null = null;
+
+/** A digit: that insert selected and shown (0 is the master); two typed quickly make one number. */
+export function goToInsert(digit: number) {
+  const doc = song();
+  if (!doc) return;
+  const now = performance.now();
+  const joined = typed && now - typed.at < DIGITS_MS ? typed.number * 10 + digit : null;
+  const number = joined !== null && joined < doc.mixer.tracks.length ? joined : digit;
+  typed = { number, at: now };
+  const track = doc.mixer.tracks[number];
+  if (!track) return;
+  useMusicUi.getState().setTrackSelection([track.id]);
+  useMixerView.getState().reveal(track.id);
+}

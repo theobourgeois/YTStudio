@@ -221,6 +221,7 @@ export function ChannelRack() {
   const steps = useShownSteps();
   const graph = useMusicUi((s) => s.graphOpen);
   const selectedIdsNow = useMusicUi((s) => s.selectedChannelIds);
+  const rackCursor = useMusicUi((s) => s.rackCursor);
   useLitDriver();
   const lead = useMusicUi((s) => s.trackSelectorsShown) ? LEAD_WITH_TRACK : LEAD;
   const selected = selectedIn({ channels } as MusicProject, selectedIdsNow);
@@ -320,7 +321,7 @@ export function ChannelRack() {
               <StepLights steps={steps} />
               {/* An audio clip's channel too, as in FL Studio: its file can be played from steps and notes as well as from the playlist. */}
               {channels.map((channel) => (
-                <StepRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} />
+                <StepRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} cursor={channel.id === selected[0]?.id ? rackCursor : null} />
               ))}
               {graph && (selected[0] ?? channels[0]) && <GraphEditor channel={selected[0] ?? channels[0]} steps={steps} />}
             </div>
@@ -971,7 +972,7 @@ const EMPTY: Note[] = [];
  * A channel's steps in the current pattern. The left button turns steps on, the right one turns them
  * off, and either paints along the row when dragged: FL Studio's step sequencer.
  */
-const StepRow = memo(function StepRow({ channelId, name, steps }: { channelId: string; name: string; steps: number }) {
+const StepRow = memo(function StepRow({ channelId, name, steps, cursor }: { channelId: string; name: string; steps: number; cursor: number | null }) {
   const patternId = useCurrentPattern((pattern) => pattern.id);
   const notes = useCurrentPattern((pattern) => pattern.notes[channelId] ?? EMPTY);
   const loop = useCurrentPattern((pattern, song) => lengthOf(song, pattern));
@@ -1026,6 +1027,7 @@ const StepRow = memo(function StepRow({ channelId, name, steps }: { channelId: s
           aria-label={`${name} step ${step + 1}`}
           aria-pressed={on.has(step)}
           data-lit={step === litStep ? "" : undefined}
+          data-cursor-step={step === cursor ? "" : undefined}
           // FL Studio's step keys: beats in two alternating colours, dark when off, pale and lit when on
           // (`step-*` in index.css, coloured by the theme), each with a lamp along its top that lights as
           // the playhead plays it (only a step that's on).
@@ -1034,6 +1036,9 @@ const StepRow = memo(function StepRow({ channelId, name, steps }: { channelId: s
             on.has(step) ? (oddBeat(step) ? "step-on-alt" : "step-on") : oddBeat(step) ? "step-off-alt" : "step-off",
             // Past the pattern's end: there to be filled (Auto), or unheard (a set length).
             step >= loop && "opacity-45",
+            // The keyboard's cursor (← → move it, Enter turns the step on or off).
+            step === cursor && "ring-2 ring-brand ring-offset-1 ring-offset-surface-1",
+            "focus-visible:ring-2 focus-visible:ring-ring/60",
           )}
           style={{ left: stepLeft(step), width: STEP_W, height: ROW_H }}
           // The row's pointer handler does the work (so a drag paints); Enter turns a step on, Delete off.

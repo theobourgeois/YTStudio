@@ -11,9 +11,9 @@ export const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test
 const MODIFIERS: Record<string, string> = { "⌃": "Ctrl", "⌘": "Ctrl", "⌥": "Alt", "⇧": "Shift" };
 /** Windows' order: Ctrl+Alt+Shift+key. */
 const ORDER = ["Ctrl", "Alt", "Shift"];
-const KEYS: Record<string, string> = { "⌫": "Del", "⌦": "Del", "↵": "Enter", "⏎": "Enter", "⎋": "Esc" };
+const KEYS: Record<string, string> = { "⌫": "Del", "⌦": "Del", "↵": "Enter", "↩": "Enter", "⏎": "Enter", "⎋": "Esc" };
 /** What joins a modifier with "+": a key ("⇧⌘L", "⌥⌫", "⌘,") or a word ("⌘click"); not punctuation ("⌘: copy", "⌥-click"). */
-const JOINS = /[\p{L}\p{N}←→↑↓⌫⌦↵⏎⎋,.[\]]/u;
+const JOINS = /[\p{L}\p{N}←→↑↓⌫⌦↵↩⏎⎋,.`[\]]/u;
 
 /** `text` with its Mac key glyphs named as on Windows (`mac` false), or as it is on a Mac. */
 export function keyLabel(text: string, mac = IS_MAC): string {
@@ -24,7 +24,7 @@ export function keyLabel(text: string, mac = IS_MAC): string {
       if (!next) return names;
       return JOINS.test(next) ? `${names}+${next}` : `${names}${next}`;
     })
-    .replace(/[⌫⌦↵⏎⎋]/gu, (key) => KEYS[key]);
+    .replace(/[⌫⌦↵↩⏎⎋]/gu, (key) => KEYS[key]);
 }
 
 /** What the computer's file manager is called, for "Show in …" and drop hints. */

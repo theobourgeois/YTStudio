@@ -40,7 +40,20 @@ describe("the Playlist's keys", () => {
     expect(press("ArrowRight", "ArrowRight", { shiftKey: true })).toEqual({ type: "nudge", snaps: 1, tracks: 0 });
     expect(press("ArrowUp", "ArrowUp", { shiftKey: true })).toEqual({ type: "nudge", snaps: 0, tracks: -1 });
     expect(press("ArrowLeft", "ArrowLeft", { metaKey: true })).toEqual({ type: "shiftTime", direction: -1 });
-    expect(press("ArrowUp", "ArrowUp")).toBeNull();
+  });
+
+  it("move the keyboard cursor with the arrows and write with it", () => {
+    expect(press("ArrowUp", "ArrowUp")).toEqual({ type: "cursor", snaps: 0, tracks: -1 });
+    expect(press("ArrowRight", "ArrowRight")).toEqual({ type: "cursor", snaps: 1, tracks: 0 });
+    expect(press("End", "End")).toEqual({ type: "end" });
+    expect(press("Enter", "Enter")).toEqual({ type: "place", advance: true });
+    expect(press("Enter", "Enter", { altKey: true })).toEqual({ type: "place", advance: false });
+    expect(press("Tab", "Tab", { shiftKey: true })).toEqual({ type: "nextClip", direction: -1 });
+    expect(press("x", "KeyX")).toEqual({ type: "toggleAtCursor" });
+    expect(press("X", "KeyX", { shiftKey: true })).toEqual({ type: "selectTrack" });
+    expect(press("i", "KeyI")).toEqual({ type: "markIn" });
+    expect(press("o", "KeyO")).toEqual({ type: "markOut" });
+    expect(press("F2", "F2")).toEqual({ type: "renameTrack" });
   });
 
   it("move the Picker's selected patterns up and down with Alt", () => {

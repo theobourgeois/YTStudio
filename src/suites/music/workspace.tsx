@@ -1,10 +1,11 @@
 import { type ReactNode, useEffect } from "react";
 import type { EngineKey } from "@shared/music/engine";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
+import { CommandPalette, useCommandPalette } from "@/components/command-palette/command-palette";
 import { PopupContainerProvider } from "@/components/ui/portal-container";
 import { keptByWindow, nativeWindowsOn } from "@/components/windows/floating-window";
 import { useMainWindowPopups } from "@/components/windows/native/popups";
-import { addWindowListener, isHtmlElement, ownerWindow, queryAnywhere } from "@/lib/window-events";
+import { addWindowListener, isElement, isHtmlElement, ownerWindow, queryAnywhere } from "@/lib/window-events";
 import { PlainWorkspace, WorkspaceError, WorkspaceLoading } from "@/components/workspace/plain-workspace";
 import { BrowserPanel } from "./browser/browser-panel";
 import { togglePreview } from "./browser/actions";
@@ -15,7 +16,24 @@ import { ChannelSettingsWindow } from "./channel-settings";
 import { startEngineSync } from "./engine-sync";
 import { type MusicKeyAction, isGlobalKey, isTyping, resolveMusicKey, resolvePluginWindowKey, takesMenuKey } from "./keys";
 import { IS_MAC } from "@/lib/key-labels";
-import { assignFreeTracks, cloneSelected, copySteps, cutSteps, deleteSelected, moveSelected, muteAt, pasteSteps, rotate, selectNeighbour } from "./rack-actions";
+import {
+  assignFreeTracks,
+  cloneSelected,
+  copySteps,
+  cutSteps,
+  deleteSelected,
+  moveSelected,
+  moveStepCursor,
+  muteAt,
+  openTargetChannel,
+  pasteSteps,
+  rotate,
+  selectNeighbour,
+  toggleStepAtCursor,
+} from "./rack-actions";
+import { musicCommands } from "./commands";
+import { resolveControlKey } from "./control-keys";
+import { focusMusicWindowElement } from "./window-focus";
 import { useMusic, useSong } from "./store";
 import { useChannelPicker } from "./channel-picker";
 import { MusicToolbar } from "./toolbar";
@@ -102,6 +120,11 @@ export default function MusicWorkspace() {
       <div key={projectId} className="flex min-h-0 flex-1 flex-col" data-suite="music">
         <MusicToolbar />
         <MusicMenus run={runKey} edit={runEdit} />
+        <CommandPalette
+          commands={paletteCommands}
+          storageKey="music-command-palette-recent"
+          placeholder="Type a command, a channel, a pattern or an insert…"
+        />
         <VocalMixDialog />
         <div className="flex min-h-0 flex-1">
           <BrowserPanel />
@@ -114,6 +137,9 @@ export default function MusicWorkspace() {
     </MainWindowPopups>
   );
 }
+
+/** The command palette's commands, as things are when it opens (`commands.ts`). */
+const paletteCommands = () => musicCommands({ front: frontWindow(), runKey, runPianoKey, runPlaylistKey, runMixerKey, runEdit });
 
 /**
  * The toolbar's and side panels' menus (the pattern picker...) in the window the panels' menus are drawn in, when
@@ -224,10 +250,10 @@ function Windows() {
   );
 }
 
-/** The window in front: the last one touched of those open. */
-function frontWindow(): WindowId | null {
+/** Whether a window is open (`useMusicWindows.order` keeps those closed too, where they were). */
+function windowOpen(id: WindowId): boolean {
   const ui = useMusicUi.getState();
-  const open = (id: WindowId) =>
+  return (
     id === "rack" ? ui.rackOpen
     : id === "piano" ? ui.pianoOpen
     : id === "playlist" ? ui.playlistOpen
@@ -255,8 +281,31 @@ function frontWindow(): WindowId | null {
     : id.startsWith("panman:") ? usePanUi.getState().openIds.includes(id.slice("panman:".length))
     : id.startsWith("wheel:") ? useWheelUi.getState().openIds.includes(id.slice("wheel:".length))
     : id.startsWith("serum:") ? useSerumUi.getState().openIds.includes(id.slice("serum:".length))
-    : ui.openChannelIds.includes(id.slice("channel:".length));
-  return [...useMusicWindows.getState().order].reverse().find(open) ?? null;
+    : ui.openChannelIds.includes(id.slice("channel:".length))
+  );
+}
+
+/** The window in front: the last one touched of those open. */
+function frontWindow(): WindowId | null {
+  return [...useMusicWindows.getState().order].reverse().find(windowOpen) ?? null;
+}
+
+/**
+ * Alt+`: the window at the back comes to the front with the keyboard, so each press goes round them all once
+ * (Shift: the other way, the front one sent to the back). Windows' Alt+Tab, inside the editor.
+ */
+function cycleWindow(direction: -1 | 1) {
+  const windows = useMusicWindows.getState();
+  const open = windows.order.filter(windowOpen);
+  if (!open.length) return;
+  let id = open[0];
+  if (direction === -1 && open.length > 1) {
+    const front = open[open.length - 1];
+    useMusicWindows.setState({ order: [front, ...windows.order.filter((w) => w !== front)] });
+    id = open[open.length - 2];
+  }
+  useMusicWindows.getState().focus(id);
+  focusMusicWindowElement(id);
 }
 
 /** A Reverb window's key (`reverb/keys.ts`). F: a tap toggles the song's Freeze; held past `HOLD_MS`, it's momentary until let go. */
@@ -356,6 +405,27 @@ function runPianoKey(action: PianoKeyAction) {
       return piano.zoomBy(action.factor);
     case "zoomPreset":
       return piano.zoomPreset(action.preset);
+    case "cursor":
+      return piano.moveCursor(action.move, action.steps);
+    case "cursorEdge":
+      return piano.cursorToEdge(action.edge);
+    case "place":
+      return piano.placeAtCursor(action.advance);
+    case "nextNote":
+      return piano.cursorToNote(action.direction);
+    case "toggleAtCursor":
+      return piano.toggleAtCursor();
+    case "selectRow":
+      return piano.selectRowAtCursor();
+    case "markIn":
+    case "markOut":
+      return piano.markAtCursor(action.type === "markIn" ? "in" : "out");
+    case "length":
+      return piano.changeLength(action.direction);
+    case "velocity":
+      return piano.changeVelocity(action.direction);
+    case "properties":
+      return piano.openNoteProperties();
   }
 }
 
@@ -408,7 +478,10 @@ function runPlaylistKey(action: PlaylistKeyAction) {
     case "centre":
       return playlist.centreOnPlayhead();
     case "home":
-      return playlist.toSongStart();
+      // The song's start, and the cursor with it.
+      return playlist.cursorToEdge("start");
+    case "end":
+      return playlist.cursorToEdge("end");
     case "close":
       return useMusicUi.getState().setPlaylistOpen(false);
     case "nudge":
@@ -421,6 +494,21 @@ function runPlaylistKey(action: PlaylistKeyAction) {
       return playlist.zoomPreset(action.preset);
     case "movePatterns":
       return playlist.movePickedPatterns(action.direction);
+    case "cursor":
+      return playlist.moveCursor(action.snaps, action.tracks);
+    case "place":
+      return playlist.placeAtCursor(action.advance);
+    case "nextClip":
+      return playlist.cursorToClip(action.direction);
+    case "toggleAtCursor":
+      return playlist.toggleAtCursor();
+    case "selectTrack":
+      return playlist.selectCursorTrack();
+    case "markIn":
+    case "markOut":
+      return playlist.markAtCursor(action.type === "markIn" ? "in" : "out");
+    case "renameTrack":
+      return playlist.renameCursorTrack();
   }
 }
 
@@ -446,6 +534,12 @@ function runMixerKey(action: MixerKeyAction) {
       return useMixerView.getState().rename(mixer.currentTrack());
     case "delete":
       return mixer.deleteTracks(mixer.selectedTracks());
+    case "volume":
+      return mixer.nudgeVolume(action.direction, action.fine);
+    case "mute":
+      return mixer.muteCurrent();
+    case "digit":
+      return mixer.goToInsert(action.digit);
   }
 }
 
@@ -519,6 +613,20 @@ function runKey(action: MusicKeyAction) {
       return cutSteps();
     case "paste":
       return pasteSteps();
+    case "palette":
+      return useCommandPalette.getState().setOpen(true);
+    case "toggleStepEdit":
+      return piano.toggleStepEdit();
+    case "cycleWindow":
+      return cycleWindow(action.direction);
+    case "stepCursor":
+      return moveStepCursor({ by: action.direction });
+    case "stepCursorEdge":
+      return moveStepCursor({ edge: action.edge });
+    case "toggleStep":
+      return toggleStepAtCursor();
+    case "openChannel":
+      return openTargetChannel();
   }
 }
 
@@ -534,6 +642,30 @@ function runEdit(command: MusicEdit) {
   else if (command === "copy") copySteps();
   else if (command === "paste") pasteSteps();
   else if (command === "delete") deleteSelected();
+}
+
+/**
+ * What the last press landed in: the focus a click gave. (Not `:focus-visible`: Chromium turns that on for
+ * a clicked button at the first key pressed, and Enter after clicking a channel's button is the rack's.)
+ */
+let clicked: Element | null = null;
+
+/**
+ * A focused control keeps its own keys, before any window's: a knob, fader, LCD or list its arrows (as it
+ * always did), and, reached with the keyboard (Tab, or focused for it), the rest of its keys too (Home, End,
+ * Page Up/Down, Delete, a number typed in: `control-keys.ts`). A button or field reached with the keyboard
+ * keeps Enter and Tab, as anywhere; one just clicked doesn't, so Enter after a click is still the window's.
+ */
+function controlKeeps(e: KeyboardEvent): boolean {
+  if (!isHtmlElement(e.target)) return false;
+  const control = e.target.closest("[role=slider], [role=spinbutton], [role=combobox]");
+  const visible = !clicked || !e.target.contains(clicked);
+  if (control) {
+    const key = resolveControlKey(e, { horizontal: true, resets: true });
+    if (key && (key.type === "step" && !e.key.startsWith("Page") ? true : visible)) return true;
+  }
+  if (!visible || e.target.matches("[data-window], body")) return false;
+  return (e.key === "Enter" || e.key === "Tab") && !e.ctrlKey && !e.metaKey && !e.altKey;
 }
 
 /** Dialogs and open menus own the keyboard. */
@@ -577,6 +709,15 @@ function useMusicKeys(enabled: boolean) {
         return;
       }
       if (keptByWindow(e.target)) return;
+      // A focused control's own keys: only the keys for everything (play, undo, the windows) pass it.
+      if (controlKeeps(e)) {
+        const action = resolveMusicKey(e);
+        if (!action || !isGlobalKey(action)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (!(e.repeat && (action.type.startsWith("toggle") || action.type === "palette" || action.type === "cycleWindow"))) runKey(action);
+        return;
+      }
       // The Browser's list has keys of its own (`browser/keys.ts`): only the editor-wide ones pass it.
       const inBrowser = isHtmlElement(e.target) && e.target.closest("[data-browser]") !== null;
       // The Piano roll's own keys, while it's the window in front.
@@ -641,12 +782,12 @@ function useMusicKeys(enabled: boolean) {
       if (action.type === "copy" && ownerWindow(e.target).getSelection()?.toString()) return;
       // A focused knob, number or list keeps its own arrows. (A menu's button doesn't: it opens with Enter.)
       const own = isHtmlElement(e.target) && e.target.closest("[role=slider], [role=spinbutton], [role=combobox]");
-      if (own && action.type === "select") return;
+      if (own && (action.type === "select" || action.type === "stepCursor" || action.type === "stepCursorEdge")) return;
       e.preventDefault();
       // Ours alone: whatever has the focus (a menu's button opens on Alt+Down, a knob turns) doesn't see it too.
       e.stopPropagation();
       // Held down, a toggle is pressed once (a window's key held a moment opened it and closed it again).
-      if (e.repeat && action.type.startsWith("toggle")) return;
+      if (e.repeat && (action.type.startsWith("toggle") || action.type === "palette" || action.type === "cycleWindow")) return;
       runKey(action);
     };
     // A typing keyboard key let go: its note ends (wherever the focus went meanwhile).
@@ -657,9 +798,11 @@ function useMusicKeys(enabled: boolean) {
     // (In every window the editor's are: a native one is a window of its own.)
     const stopDown = addWindowListener("keydown", onKeyDown, true);
     const stopUp = addWindowListener("keyup", onKeyUp, true);
+    const stopPress = addWindowListener("pointerdown", (e) => (clicked = isElement(e.target) ? e.target : null), true);
     return () => {
       stopDown();
       stopUp();
+      stopPress();
     };
   }, [enabled]);
 }

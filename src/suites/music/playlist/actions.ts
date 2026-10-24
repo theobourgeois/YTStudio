@@ -12,6 +12,7 @@ import {
   type NewClip,
   clipBounds,
   clipContext,
+  clipEnd,
   clipLength,
   chopClips,
   clipsInTime,
@@ -35,7 +36,7 @@ import {
   splitByChannel,
   updateTrack,
 } from "@shared/music/playlist";
-import { stepsPerBar } from "@shared/music/project";
+import { MAX_PLAYLIST_TRACKS, stepsPerBar } from "@shared/music/project";
 import { editPoints, updateAutomation } from "@shared/music/automation";
 import { openAutomationWindow } from "../automation/actions";
 import { bounceWithToast } from "./bounce";
@@ -48,7 +49,7 @@ import { switchMode, useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { applyDrag, rectSelection } from "./drag";
 import { fadeOutClips } from "./fades";
-import { MAX_PX_PER_TICK, MIN_PX_PER_TICK, type TrackLayout, minPxPerTick, shownTracks, trackLayout, zoomAt, zoomToRange } from "./geometry";
+import { MAX_PX_PER_TICK, MIN_PX_PER_TICK, type TrackLayout, minPxPerTick, shownTracks, trackLayout, trackTop, visibleTracks, zoomAt, zoomToRange } from "./geometry";
 import { type PickMode, pickPattern } from "./picks";
 import { type ClipSource, type PlaylistTool, usePlaylist } from "./store";
 
@@ -227,11 +228,12 @@ export function selectSimilar() {
 // Editing
 // ---------------------------------------------------------------------------
 
-/** Delete: the selection, or every clip when nothing is selected (as FL Studio does). */
+/** Delete: the selection, else the clip under the keyboard's cursor, else every clip (as FL Studio does). */
 export function deleteSelected() {
   const p = playlistContext();
   if (!p?.clips.length) return;
-  const gone = orAllClips(p.clips, p.selected);
+  const under = !p.selected.size ? clipAtCursor(p) : null;
+  const gone = under ? new Set([under.id]) : orAllClips(p.clips, p.selected);
   fadeOutClips(p.clips.filter((c) => gone.has(c.id)), p.selected);
   edit((clips) => removeClips(clips, gone));
   usePlaylist.getState().select([]);
@@ -640,3 +642,142 @@ export function addTimeMarker() {
 }
 
 export { markersOf };
+
+// ---------------------------------------------------------------------------
+// The keyboard's cursor
+// ---------------------------------------------------------------------------
+
+/** The cursor's grid: the snap's, or a bar with no snap (the Playlist is laid out in bars). */
+const cursorGrid = (p: PlaylistContext) => (p.grid <= 1 ? p.barTicks : p.grid);
+
+/** The clip under the cursor, if any: on its track and playing at its tick (the latest to start, where two overlap). */
+function clipAtCursor(p: PlaylistContext): PlaylistClip | null {
+  const { cursor } = usePlaylist.getState();
+  if (!cursor) return null;
+  let found: PlaylistClip | null = null;
+  for (const clip of p.clips) {
+    if (clip.track === cursor.track && clip.start <= cursor.tick && cursor.tick < clipEnd(clip, p.ctx) && (!found || clip.start >= found.start)) found = clip;
+  }
+  return found;
+}
+
+/** The cursor now, or where it starts: the first selected clip, else the first bar in view on the top track in view. */
+function cursorNow(p: PlaylistContext): { tick: number; track: number } {
+  const playlist = usePlaylist.getState();
+  if (playlist.cursor) return playlist.cursor;
+  const clip = p.clips.find((c) => p.selected.has(c.id));
+  if (clip) return { tick: clip.start, track: clip.track };
+  const grid = cursorGrid(p);
+  return { tick: Math.ceil(playlist.view.scrollTick / grid - 1e-9) * grid, track: visibleTracks(p.layout, playlist.view, playlist.gridHeight)[0] };
+}
+
+/** Put the cursor somewhere, the view scrolled to keep it (and a little round it) in sight. */
+export function placeCursor(cursor: { tick: number; track: number }) {
+  const p = playlistContext();
+  const { view, gridWidth, gridHeight } = usePlaylist.getState();
+  if (!p) return;
+  const grid = cursorGrid(p);
+  const margin = Math.min(48, gridWidth / 4) / view.pxPerTick;
+  const span = gridWidth / view.pxPerTick;
+  let { scrollTick, scrollY } = view;
+  if (cursor.tick < scrollTick + margin) scrollTick = Math.max(0, cursor.tick - margin);
+  else if (cursor.tick + grid > scrollTick + span - margin) scrollTick = cursor.tick + grid - span + margin;
+  const layout = trackLayout(p.song.playlist.tracks, Math.max(p.trackCount, cursor.track + 2), view.trackHeight);
+  const top = trackTop(layout, view, cursor.track);
+  const bottom = trackTop(layout, view, cursor.track + 1);
+  if (top < 0) scrollY = Math.max(0, scrollY + top);
+  else if (bottom > gridHeight) scrollY += bottom - gridHeight;
+  usePlaylist.setState({ cursor, view: scrollTick === view.scrollTick && scrollY === view.scrollY ? view : { ...view, scrollTick, scrollY } });
+}
+
+/** ← → ↑ ↓: the cursor along by the grid or a track up or down (the first press only shows it). */
+export function moveCursor(snaps: number, tracks: number) {
+  const p = playlistContext();
+  if (!p) return;
+  const from = cursorNow(p);
+  if (!usePlaylist.getState().cursor) return placeCursor(from);
+  const grid = cursorGrid(p);
+  const on = Math.round(from.tick / grid) * grid;
+  // Off the grid (the snap or zoom changed), the first step goes to the grid line that way.
+  const base = Math.abs(on - from.tick) < 1e-6 ? on : snaps > 0 ? Math.floor(from.tick / grid) * grid : Math.ceil(from.tick / grid) * grid;
+  placeCursor({ tick: Math.max(0, base + snaps * grid), track: clamp(from.track + tracks, 0, MAX_PLAYLIST_TRACKS - 1) });
+}
+
+/** Home / End: the cursor to the song's start (play starting there too) or its end. */
+export function cursorToEdge(edge: "start" | "end") {
+  const p = playlistContext();
+  if (!p) return;
+  const grid = cursorGrid(p);
+  placeCursor({ ...cursorNow(p), tick: edge === "start" ? 0 : Math.ceil(songTicks(p.song) / grid) * grid });
+  if (edge === "start") toSongStart();
+}
+
+/** How long the clip Enter would put at the cursor is. */
+export function cursorClipLength(song: MusicProject): number {
+  const { cursor } = usePlaylist.getState();
+  const clip = newClip(song, clipSource(song), cursor?.tick ?? 0, cursor?.track ?? 0);
+  return clip.length ?? Math.max(STEP_TICKS, clipContext(song).patternTicks(clip.ref));
+}
+
+/** Enter: the Picker's pattern (or audio, or automation) at the cursor, then (`advance`) the cursor past it. */
+export function placeAtCursor(advance: boolean) {
+  const p = playlistContext();
+  if (!p) return;
+  const { cursor } = usePlaylist.getState();
+  if (!cursor) return placeCursor(cursorNow(p));
+  const clip = newClip(p.song, clipSource(p.song), cursor.tick, cursor.track);
+  const result = applyDrag(p.clips, { kind: "add", clips: [clip] }, p.ctx);
+  if (result.clips === p.clips) return;
+  edit(() => result.clips);
+  usePlaylist.getState().select(result.created);
+  if (advance) placeCursor({ ...cursor, tick: cursor.tick + cursorClipLength(p.song) });
+}
+
+/** Tab / Shift+Tab: the cursor to the next (previous) clip, by start then track, it alone selected. */
+export function cursorToClip(direction: -1 | 1) {
+  const p = playlistContext();
+  if (!p) return;
+  const here = cursorNow(p);
+  const order = (a: { start: number; track: number }, b: { start: number; track: number }) => a.start - b.start || a.track - b.track;
+  const at = { start: here.tick, track: here.track };
+  let best: PlaylistClip | null = null;
+  for (const clip of p.clips) {
+    if (order(clip, at) * direction > 0 && (!best || order(clip, best) * direction < 0)) best = clip;
+  }
+  if (!best) return;
+  placeCursor({ tick: best.start, track: best.track });
+  usePlaylist.getState().select([best.id]);
+}
+
+/** X: the clip under the cursor in or out of the selection. */
+export function toggleAtCursor() {
+  const p = playlistContext();
+  const clip = p && clipAtCursor(p);
+  if (!p || !clip) return;
+  const selected = new Set(p.selected);
+  if (selected.has(clip.id)) selected.delete(clip.id);
+  else selected.add(clip.id);
+  usePlaylist.getState().select(selected);
+}
+
+/** Shift+X: every clip on the cursor's track. */
+export function selectCursorTrack() {
+  const { cursor } = usePlaylist.getState();
+  if (cursor) selectTrackClips(cursor.track);
+}
+
+/** I / O: the time selection's start (or end) at the cursor, the other end kept if it still makes a range. */
+export function markAtCursor(end: "in" | "out") {
+  const p = playlistContext();
+  const { cursor, time } = usePlaylist.getState();
+  if (!p || !cursor) return;
+  const grid = cursorGrid(p);
+  if (end === "in") selectTime(cursor.tick, time && time.end > cursor.tick ? time.end : cursor.tick + grid);
+  else selectTime(time && time.start < cursor.tick + grid ? time.start : cursor.tick, cursor.tick + grid);
+}
+
+/** F2: the cursor's track's name, typed. */
+export function renameCursorTrack() {
+  const p = playlistContext();
+  if (p) usePlaylist.setState({ renaming: cursorNow(p).track });
+}

@@ -1,4 +1,5 @@
 import { type ReactNode, useRef, useState } from "react";
+import { resolveControlKey } from "../control-keys";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
@@ -52,6 +53,8 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
   const [dragging, setDragging] = useState(false);
   const [typing, setTyping] = useState<string | null>(null);
   const typingNext = useRef(false);
+  // Typed in by typing a number on it: the field starts with that character, the caret after it.
+  const caretAtEnd = useRef(false);
   const groove = useRef<HTMLDivElement>(null);
   useWheelValue(groove, { value: () => own, min: 0, max: 1, step: (fine) => (fine ? 0.005 : 0.025), onBegin, onDrag, onEnd });
   const handleTop = (v: number) => `calc((1 - ${v}) * (100% - ${HANDLE_H}px))`;
@@ -79,7 +82,7 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
               aria-valuetext={faderDb(value)}
               title={`${label}: ${faderDb(value)}${automated ? " (automated)" : ""}`}
               data-automated={automated || undefined}
-              className={cn("relative w-[22px] cursor-ns-resize touch-none outline-none", className)}
+              className={cn("relative w-[22px] cursor-ns-resize touch-none rounded-[4px] outline-none focus-visible:ring-2 focus-visible:ring-ring/60", className)}
               onPointerDown={(e) => {
                 if (e.button === 1 || (e.button === 0 && e.altKey)) {
                   e.preventDefault();
@@ -129,10 +132,15 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
                 });
               }}
               onKeyDown={(e) => {
-                const step = e.ctrlKey || e.metaKey ? 0.005 : 0.025;
-                if (e.key === "ArrowUp") onSet(clamp(own + step, 0, 1));
-                else if (e.key === "ArrowDown") onSet(clamp(own - step, 0, 1));
-                else return;
+                const key = resolveControlKey(e, { resets: true });
+                if (!key) return;
+                if (key.type === "step") onSet(clamp(own + key.direction * { fine: 0.005, normal: 0.025, coarse: 0.1 }[key.size], 0, 1));
+                else if (key.type === "edge") onSet(key.edge === "min" ? 0 : 1);
+                else if (key.type === "reset") onSet(DEFAULT_FADER);
+                else {
+                  caretAtEnd.current = key.text !== undefined;
+                  setTyping(key.text ?? faderDb(value).replace(" dB", "").replace("−", "-").replace("∞", "inf"));
+                }
                 e.preventDefault();
                 e.stopPropagation();
               }}
@@ -197,7 +205,15 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
           {menu}
         </ContextMenuContent>
       </ContextMenu>
-      <PopoverContent className="w-36 p-2" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <PopoverContent
+        className="w-36 p-2"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        // Typed (or let go), the keyboard is back on the fader, for the next key.
+        onCloseAutoFocus={(e) => {
+          e.preventDefault();
+          groove.current?.focus();
+        }}
+      >
         <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Input
             autoFocus
@@ -206,7 +222,7 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
             className="h-7"
             value={typing ?? ""}
             onChange={(e) => setTyping(e.target.value)}
-            onFocus={(e) => e.currentTarget.select()}
+            onFocus={(e) => (caretAtEnd.current ? e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length) : e.currentTarget.select())}
             onKeyDown={(e) => {
               if (e.key === "Enter") commitTyped();
               e.stopPropagation();

@@ -137,6 +137,8 @@ export interface PlaylistScene {
   slice: { tick: number; top: number; bottom: number; all: boolean } | null;
   /** The automation point under the pointer or being dragged: drawn larger, with its value. */
   curveFocus: { automationId: string; index: number; label: string } | null;
+  /** The keyboard's cursor, when shown: its cell, and how long the clip Enter would put there is. */
+  cursor?: { tick: number; track: number; length: number } | null;
   palette: Palette;
 }
 
@@ -387,6 +389,25 @@ export function drawTracks(ctx: CanvasRenderingContext2D, scene: PlaylistScene) 
   if (drag?.kind === "playback") {
     ctx.fillStyle = palette.tool;
     ctx.fillRect(Math.round(tickToX(view, drag.tick)), 0, 2, height);
+  }
+  if (scene.cursor && !drag) {
+    // The keyboard's cursor: its track faintly lit, a bar where it stands, the outline of the clip Enter would add.
+    const { tick, track, length } = scene.cursor;
+    const y = Math.round(trackTop(layout, view, track));
+    const h = Math.round(trackTop(layout, view, track + 1)) - y - 1;
+    const x = Math.round(tickToX(view, tick));
+    const w = Math.max(6, Math.round(length * view.pxPerTick));
+    ctx.fillStyle = palette.brand;
+    ctx.globalAlpha = palette.dark ? 0.08 : 0.06;
+    ctx.fillRect(0, y, width, h);
+    ctx.globalAlpha = 0.18;
+    ctx.fillRect(x, y, w, h);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = palette.brand;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.setLineDash([]);
+    ctx.fillRect(x - 1, y - 2, 2, h + 4);
   }
 }
 

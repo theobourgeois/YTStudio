@@ -10,6 +10,8 @@ describe("keyLabel", () => {
     expect(keyLabel("⌘L", false)).toBe("Ctrl+L");
     expect(keyLabel("⇧⌘L", false)).toBe("Ctrl+Shift+L");
     expect(keyLabel("⌘⇧R", false)).toBe("Ctrl+Shift+R");
+    expect(keyLabel("⇧⌥`", false)).toBe("Alt+Shift+`");
+    expect(keyLabel("⇧↩", false)).toBe("Shift+Enter");
     expect(keyLabel("⌥⇧M", false)).toBe("Alt+Shift+M");
     expect(keyLabel("⌃R", false)).toBe("Ctrl+R");
     expect(keyLabel("⇧⌘←", false)).toBe("Ctrl+Shift+←");
