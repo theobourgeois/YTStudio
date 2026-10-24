@@ -15,7 +15,7 @@ import { MILKDROP_PRESETS, MILKDROP_SIZE, milkdropPreset } from "@shared/live-mi
 import type { LiveSignals } from "@shared/signals/live";
 import { errorMessage } from "@shared/errors";
 import { log } from "@/lib/log";
-import { MediaFeed } from "./media-feed";
+import { type FedMedia, MediaFeed } from "./media-feed";
 import type { MediaMix } from "./media-mix";
 
 const logger = log("now-playing");
@@ -36,7 +36,7 @@ export type Shown = readonly { look: string; from: number; full: number }[];
 
 /** The clip or picture going into its feedback, how, and how far into a kick the music is (0..1). */
 export interface Feeding {
-  media: { id: string; src: string; kind: "video" | "image"; from: number };
+  media: FedMedia;
   mix: MediaMix;
   hit: number;
 }

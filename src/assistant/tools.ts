@@ -73,6 +73,8 @@ import { EFFECTS_MODES } from "@/components/now-playing-view/effects-engine";
 import { AUTO_SWITCHES, PACE, paceLabel, paceOf, useVisualizerPrefs } from "@/components/now-playing-view/prefs";
 import { useLookRatings } from "@/components/now-playing-view/look-ratings";
 import { useVisualizerMedia } from "@/components/now-playing-view/media-library";
+import { useVisualizerScreen } from "@/components/now-playing-view/screen";
+import { desktopScreens } from "@/lib/desktop";
 import { useNowPlaying } from "@/stores/now-playing";
 
 /** What the music player's `unavailable` means, for the model. */
@@ -866,6 +868,14 @@ const TOOLS: Record<VideoToolName, Handler> = {
           ? `The user's set of clips in use (${inUse.name}) is empty: they add clips to it from the visualizer's media panel.`
           : "The user has no clips or pictures in the visualizer (they add them from its media panel, or drop them on it).",
     );
+    // A screen or window shared into the looks, and what could be.
+    const screens = useVisualizerScreen.getState();
+    if (desktopScreens()) await screens.list();
+    const sources = useVisualizerScreen.getState().sources;
+    lines.push(
+      (screens.shared ? `${screens.shared.name} is shared into MilkDrop's looks (in place of the clips; only MilkDrop's looks are picked).` : "No screen or window is shared into the looks.") +
+        (sources ? ` Screens and windows to share (screen): ${sources.map((s) => s.name).join(", ") || "none"}.` : " In a browser the user picks one themselves (G, or the media panel's Screen)."),
+    );
     // What each suits (step 5 of docs/now-playing.md), so a look can be picked for the music.
     const suits = (l: (typeof LIVE_LOOKS)[number]) => `${l.suits.characters.join("/")}, intensity ${l.suits.energy[0]}–${l.suits.energy[1]}${l.suits.minimal ? ", minimal" : ""}`;
     lines.push(
@@ -895,6 +905,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
     const mediaAsk = optString(input, "media");
     if (mediaAsk !== undefined && mediaAsk !== "on" && mediaAsk !== "off" && mediaAsk !== "next") throw new ToolError("`media` is on, off or next.");
     const mediaSetName = optString(input, "mediaSet");
+    const screenName = optString(input, "screen");
     if (ratingMode !== undefined && ratingMode !== "start" && ratingMode !== "stop") throw new ToolError("`rating` is start or stop.");
     const rawFrame = input.frame;
     if (rawFrame !== undefined && (typeof rawFrame !== "object" || rawFrame === null || Array.isArray(rawFrame))) throw new ToolError("`frame` is an object: repeat, mirror, spin, zoom or reset.");
@@ -982,6 +993,30 @@ const TOOLS: Record<VideoToolName, Handler> = {
       } else prefs.setMedia(mediaAsk === "on");
       if (mediaAsk !== "off" && !useNowPlaying.getState().visualizer) np.openVisualizer();
       done.push(mediaAsk === "next" ? "brought in another clip" : mediaAsk === "on" ? "melting the user's clips into MilkDrop's looks" : "took the user's clips out of the visualizer");
+    }
+    if (screenName !== undefined) {
+      const screens = useVisualizerScreen.getState();
+      if (sameName(screenName, "off")) {
+        const was = screens.shared?.name;
+        screens.stop();
+        done.push(was ? `stopped sharing ${was}` : "no screen was shared");
+      } else {
+        if (!desktopScreens()) throw new ToolError("In a browser the user picks the screen or window themselves: they press G in the visualizer, or open its media panel's Screen.");
+        await screens.list();
+        const sources = useVisualizerScreen.getState().sources ?? [];
+        const wanted = sources.find((s) => sameName(s.name, screenName)) ?? sources.find((s) => s.name.toLowerCase().includes(screenName.trim().toLowerCase()));
+        if (!wanted) throw new ToolError(`There's no screen or window called "${screenName}". There are: ${sources.map((s) => s.name).join(", ") || "none"} (or off).`);
+        if (!useNowPlaying.getState().visualizer) np.openVisualizer();
+        if (!(await useVisualizerScreen.getState().share(wanted.id))) {
+          const { access } = useVisualizerScreen.getState();
+          throw new ToolError(
+            access && access !== "granted"
+              ? "macOS hasn't let the app record the screen: the user allows it in System Settings › Privacy & Security › Screen & System Audio Recording."
+              : `Couldn't share ${wanted.name}.`,
+          );
+        }
+        done.push(`sharing ${wanted.name} into MilkDrop's looks`);
+      }
     }
     if (ratingMode) {
       useLookRatings.getState().ask(ratingMode === "start");

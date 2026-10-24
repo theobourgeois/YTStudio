@@ -6,6 +6,7 @@ import {
   PiGlobe,
   PiImage,
   PiMagnifyingGlass,
+  PiMonitor,
   PiPencilSimple,
   PiPlus,
   PiShuffle,
@@ -21,8 +22,11 @@ import { useEndOfList, useWebSearch } from "@/components/media/use-web-search";
 import { LONG_TAKES, LONG_VIDEO, MEDIA_FOLDER, useVisualizerMedia } from "./media-library";
 import { newSetName } from "./media-sets";
 import { useVisualizerPrefs } from "./prefs";
+import { useVisualizerScreen } from "./screen";
+import { desktopScreens } from "@/lib/desktop";
 
-type Tab = "yours" | "online";
+/** The panel's tabs (the view keeps which: G opens it on Screen). */
+export type MediaTab = "yours" | "online" | "screen";
 
 /**
  * The user's clips and pictures for the visualizer (docs/now-playing.md, "Your media"): what's in the Library's
@@ -30,29 +34,32 @@ type Tab = "yours" | "online";
  * search, its picture downloaded into the folder) or dropped on the visualizer, taken out, turned on or off, another
  * one asked for.
  */
-export function MediaPanel({ milkdrop }: { milkdrop: boolean }) {
-  const [tab, setTab] = useState<Tab>("yours");
+export function MediaPanel({ milkdrop, tab, onTab: setTab }: { milkdrop: boolean; tab: MediaTab; onTab: (tab: MediaTab) => void }) {
   const media = useVisualizerMedia((s) => s.media);
   const on = useVisualizerPrefs((s) => s.media);
+  const screen = useVisualizerScreen((s) => s.shared);
   return (
     <div
       data-media-panel
       className="pointer-events-auto absolute top-16 right-4 bottom-36 flex w-80 flex-col rounded-lg bg-black/75 px-5 py-4 ring-1 ring-white/10 backdrop-blur-md"
     >
-      <div role="tablist" aria-label="Your media" className="mb-3 grid grid-cols-2 gap-1">
+      <div role="tablist" aria-label="Your media" className="mb-3 grid grid-cols-3 gap-1">
         <Choice role="tab" on={tab === "yours"} onClick={() => setTab("yours")}>
           Yours{media.length ? ` (${media.length})` : ""}
         </Choice>
         <Choice role="tab" on={tab === "online"} onClick={() => setTab("online")}>
           Online
         </Choice>
+        <Choice role="tab" on={tab === "screen"} onClick={() => setTab("screen")}>
+          Screen{screen ? " ●" : ""}
+        </Choice>
       </div>
-      {on && media.length > 0 && !milkdrop && (
+      {((on && media.length > 0) || screen) && !milkdrop && (
         <p data-media-note className="mb-3 rounded-md bg-white/10 px-3 py-2 text-[11px] leading-4 text-white/80">
           This look isn't one of MilkDrop's, so it shows none: the next MilkDrop look will (↑ ↓ to MilkDrop, or the looks menu).
         </p>
       )}
-      {tab === "yours" ? <Yours /> : <Online onAdded={() => setTab("yours")} />}
+      {tab === "yours" ? <Yours /> : tab === "online" ? <Online onAdded={() => setTab("yours")} /> : <Screen />}
     </div>
   );
 }
@@ -469,6 +476,116 @@ function Result({ clip, download, added, onAdd }: { clip: WebClip; download: Web
         )}
       </button>
     </li>
+  );
+}
+
+/**
+ * A screen or window in the looks (`screen.ts`): the desktop app's screens and windows to pick from (its own left out),
+ * a browser's picker otherwise; the one shared, live, and Stop.
+ */
+function Screen() {
+  const shared = useVisualizerScreen((s) => s.shared);
+  const asking = useVisualizerScreen((s) => s.asking);
+  const sources = useVisualizerScreen((s) => s.sources);
+  const access = useVisualizerScreen((s) => s.access);
+  const desktop = !!desktopScreens();
+  // What's there, now and every few seconds while the panel shows it (windows open and close).
+  useEffect(() => {
+    if (!desktop) return;
+    void useVisualizerScreen.getState().list();
+    const t = setInterval(() => void useVisualizerScreen.getState().list(), 4000);
+    return () => clearInterval(t);
+  }, [desktop]);
+  const share = (id?: string) => void useVisualizerScreen.getState().share(id);
+  return (
+    <div data-screen-panel className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
+      <p className="mb-3 text-[11px] leading-4 text-white/55">
+        A screen or another program's window (FL Studio as you work in it, a game...) in MilkDrop's looks, the music driving them: shown whole, flashing up on
+        the kicks, its trails streaming off it. In place of your clips while it's shared; G again stops it.
+      </p>
+      {shared && <Live />}
+      {access && access !== "granted" && (
+        <p data-screen-access className="mb-3 rounded-md bg-white/10 px-3 py-2 text-[11px] leading-4 text-white/80">
+          macOS hasn't let YTStudio record the screen: allow it in System Settings › Privacy &amp; Security › Screen &amp; System Audio Recording, then open it
+          again.
+        </p>
+      )}
+      {desktop ? (
+        sources === null ? (
+          <Hint>
+            <PiSpinnerGap className="mx-auto size-4 animate-spin" />
+          </Hint>
+        ) : sources.length === 0 ? (
+          <Hint>No screens or windows to share.</Hint>
+        ) : (
+          <div role="list" aria-label="Screens and windows" className="grid grid-cols-2 gap-2">
+            {sources.map((source) => {
+              const on = shared?.sourceId === source.id;
+              return (
+                <button
+                  key={source.id}
+                  type="button"
+                  role="listitem"
+                  data-screen-source={source.id}
+                  aria-pressed={on}
+                  title={source.name}
+                  disabled={asking}
+                  onClick={() => (on ? useVisualizerScreen.getState().stop() : share(source.id))}
+                  className={cn("min-w-0 rounded-md p-1 text-left ring-1 hover:bg-white/10 disabled:opacity-50", on ? "bg-white/15 ring-white" : "ring-white/10")}
+                >
+                  {source.thumbnail ? (
+                    <img src={source.thumbnail} alt="" className="aspect-video w-full rounded bg-black object-contain" />
+                  ) : (
+                    <div className="grid aspect-video w-full place-items-center rounded bg-black text-white/40">
+                      <PiMonitor className="size-5" />
+                    </div>
+                  )}
+                  <span className="mt-1 block truncate text-[11px] text-white/80">{source.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        )
+      ) : (
+        <div className="grid">
+          <Button disabled={asking} onClick={() => share()}>
+            <PiMonitor />
+            {shared ? "Another screen or window…" : "Choose a screen or window…"}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The one shared, as the looks get it, and Stop. */
+function Live() {
+  const shared = useVisualizerScreen((s) => s.shared)!;
+  const video = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const el = video.current;
+    if (!el) return;
+    el.srcObject = shared.stream;
+    void el.play().catch(() => {});
+    return () => {
+      el.srcObject = null;
+    };
+  }, [shared.stream]);
+  return (
+    <div data-screen-shared className="mb-3 rounded-md bg-white/10 p-2 ring-1 ring-white/15">
+      <video ref={video} muted playsInline className="aspect-video w-full rounded bg-black object-contain" />
+      <div className="mt-2 flex items-center gap-2">
+        <span className="size-2 shrink-0 rounded-full bg-red-500" />
+        <span className="min-w-0 flex-1 truncate text-[12px] text-white/85">{shared.name}</span>
+        <button
+          type="button"
+          onClick={() => useVisualizerScreen.getState().stop()}
+          className="h-6 rounded bg-white/10 px-2 text-[11px] text-white/85 ring-1 ring-white/15 hover:bg-white/15"
+        >
+          Stop sharing
+        </button>
+      </div>
+    </div>
   );
 }
 

@@ -13,7 +13,7 @@ visualization with presets, the cover's colours, vaudio's looks and its play key
 | The types, positions, commands | `shared/now-playing.ts` | platform |
 | Where the visualizer opens (over everything) | `src/components/now-playing/` | platform |
 | The tab's state: polling, the cover's palette, listening, the visualizer open | `src/stores/now-playing.ts` | platform |
-| Listening to the computer's sound | `src/lib/live-audio.ts`, the grant in `electron/main.ts` (`answerListening`) | platform |
+| Listening to the computer's sound | `src/lib/live-audio.ts`, the grant in `electron/screen-share.ts` (`answerScreenShares`) | platform |
 | Live signals (the analysis as it's heard), the live beat | `shared/signals/live.ts`, `live-beat.ts` | platform |
 | A cover's colours by role | `shared/palette.ts` | platform |
 | The vibe (CLAP): its vocabulary, features, model; hearing it in a worker | `shared/signals/vibe.ts`, `clap.ts`; `src/lib/vibe.ts`, `vibe-worker.ts` | platform |
@@ -22,6 +22,7 @@ visualization with presets, the cover's colours, vaudio's looks and its play key
 | The visualizer: director, source, keys, view | `src/components/now-playing-view/` | video (`ClientSuite.NowPlaying`) |
 | The looks as the user rated them (Your taste): what a rating is, its file | `shared/look-ratings.ts`, `server/look-ratings.ts` | platform |
 | The user's clips and pictures in MilkDrop's looks and feedback (Your media), found online too, in sets | `now-playing-view/media-feed.ts`, `media-mix.ts`, `media-library.ts`, `media-sets.ts`, `media-panel.tsx`; `LibraryStore.addFromWeb` | video |
+| A screen or another program's window in MilkDrop's looks (Your screen) | `now-playing-view/screen.ts`, `media-feed.ts` (`stream`), `media-panel.tsx` (Screen); `electron/screen-share.ts` | video |
 | Its own window (a stage) | `src/components/windows/native/stage-window.ts`, `electron/stage.ts` | platform |
 | vaudio's 2D visualizers | `shared/effect-library/audio.ts` (Wave Bars ... Acid Plasma) | video |
 | The assistant | `now_playing`, `control_now_playing` (`shared/assistant-tools.ts`) | video |
@@ -110,7 +111,7 @@ up top (`LooksMenu`: the look playing on its button; Shuffle, then each kind ope
 that kind first), or the keys and R. There's no list of them along the bottom.
 
 The keys (`keys.ts`, vaudio's play mode): ← → looks, ↑ ↓ kinds, R random, L love it, B bin it, ⇧R rate the looks (see
-Your taste), N another of your clips, ⇧N your clips on or off (see Your media), M another variation, = chaos, - mutate,
+Your taste), N another of your clips, ⇧N your clips on or off (see Your media), G a screen or window in the looks (Your screen), M another variation, = chaos, - mutate,
 A how looks change, Z X C V punch, flash, split, twist, 1–0 turn the colours, T Y [ ] , . the frame (repeat, mirror,
 turn, zoom), Q W E more warp, swirl, ripples (⇧ less), D every setting, ⌫ wash, Space play or pause, ⇧← ⇧→ songs,
 F full screen, P the mini player, O its own window, H hide the controls, S tap along, ⇧S slow motion, I what it hears,
@@ -508,6 +509,29 @@ shows only its outlines: all of it washes a look out.
   was taken out. The media panel says so when the look shown isn't MilkDrop's (it shows none). `--trace 60` watches the
   picture's light as it plays (`TRACE_ALL=1`: every reading, MilkDrop's own canvas's beside it; `--keys` at times), for
   a picture that goes dark.
+
+## Your screen
+
+A screen or another program's window in MilkDrop's looks (Théo, 2026-10-24: "you're sharing FL… it would visualize on
+FL"): FL Studio as it's worked in, a game, a call, going in as the clips do (`media-feed.ts` takes a `stream`) while
+what the computer plays drives the looks. Only its picture: the sound is listening's.
+
+- **Picking it** (`screen.ts`, `useVisualizerScreen`): the media panel's **Screen** (G opens it there; G again, or
+  Stop sharing, stops). In the desktop app, the screens and windows as pictures (`desktopCapturer`, every 4 seconds
+  while it shows; the app's own windows left out, or the visualizer would see itself), one clicked handed over for
+  the next `getDisplayMedia` (`screen-choose`, `electron/screen-share.ts`). Listening's request asks for sound and the
+  screen's doesn't, which is how the one handler tells them apart (`request.audioRequested`). On a Mac it needs Screen
+  Recording (the panel says so when `getMediaAccessStatus("screen")` isn't granted). In a browser, its own picker
+  (this tab left out: `selfBrowserSurface`); G opens it at once, a key being a gesture.
+- **How it goes in** (`mixFor(..., "screen")`): shown whole and as it is (it's read as itself: its panels, its text),
+  its own shape inside the frame (a contain fit, nothing cut off, edges barely faded: `boxed`), no background taken out,
+  at 0.6 calm down to 0.4 intense on top so the look shows through, flashing up more on the kicks than a clip; all of
+  it most of the time, its light or edges now and then. Into the feedback as a clip is, so trails stream off it.
+- **Only MilkDrop's looks** show it, so while it's shared only they're picked (`appealNow` is 0 for the others), and
+  one comes on if another kind is showing when it starts. It's in place of the clips, which come back when it stops.
+  Stopped when the visualizer closes, or the share ends (the window closed, the browser's Stop sharing).
+- **The assistant**: `now_playing` says what's shared and, in the desktop app, what could be; `control_now_playing`'s
+  `screen` shares one by name (or part of it), `off` stops. In a browser the user picks it.
 
 Next (Théo picked feeding the feedback first, 2026-10-15): the clips' mood (CLIP on a few frames, on the same axes as
 the songs' vibe: a dreamy clip for a dreamy song), their motion matched to the music's (the drop's hardest-moving shots),

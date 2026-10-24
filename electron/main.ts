@@ -9,7 +9,7 @@ import { existsSync, readFileSync, renameSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { engineExecutable } from "../server/engine-path.ts";
-import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcMain, session, shell, systemPreferences } from "electron";
+import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcMain, shell, systemPreferences } from "electron";
 import { log, logFile, startLogging } from "../server/log.ts";
 import type { RunningServer } from "./server.ts";
 import { loadShellPath } from "./shell-path.ts";
@@ -17,6 +17,7 @@ import { loadWindowState, trackWindowState } from "./window-state.ts";
 import { desktopIcon, initializeAppIcon } from "./app-icon.ts";
 import { Stages, answerStageRequests, isStageName, stageOptions } from "./stage.ts";
 import { carrySettingsOver } from "./carry-over.ts";
+import { answerScreenShares } from "./screen-share.ts";
 import { type AppId, EVERY_APP, appInfo, isAppId } from "../shared/apps.ts";
 import { SUITES, SUITE_IDS } from "../shared/suites.ts";
 
@@ -285,7 +286,10 @@ async function start() {
   answerSaveDialogs();
   answerProjectDialogs();
   answerMicrophone();
-  answerListening();
+  // Now Playing listens to what the computer plays (`src/lib/live-audio.ts`): a screen share's sound, the system's
+  // (loopback: Core Audio's process tap on a Mac, which asks once, by `NSAudioCaptureUsageDescription`) with the page
+  // as its picture, so it's never asked to record the screen; and sees a screen or window picked (screen-share.ts).
+  answerScreenShares();
   initializeAppIcon(THIS_APP.id);
   // Once, in a new app: the theme, fonts and layouts YTStudio's page kept (carry-over.ts). Packaged only: in
   // development the page is Vite's, on an origin of its own. EDITOR_SETTINGS_FROM names another profile (tests).
@@ -476,15 +480,6 @@ function answerMicrophone() {
     await systemPreferences.askForMediaAccess("microphone");
     return status();
   });
-}
-
-/**
- * Now Playing's visualizer listens to what the computer plays (`src/lib/live-audio.ts`): the page asks for a
- * screen share's sound, and gets the system's (loopback: Core Audio's process tap on a Mac, which asks once, by
- * `NSAudioCaptureUsageDescription`) with its own page as the picture, so it's never asked to record the screen.
- */
-function answerListening() {
-  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => callback({ video: request.frame ?? undefined, audio: "loopback" }));
 }
 
 /**

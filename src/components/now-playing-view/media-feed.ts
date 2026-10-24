@@ -5,8 +5,9 @@
  * off it as trails in the preset's own motion (a preset warps all of its buffer every frame: what's only in it is soon
  * unrecognisable). A clip on a flat background has it taken out (`backdropOf`, measured on the clip every so often) and floats
  * at its own shape; footage fills the frame. How much and which of it (`MediaMix`: all of it, only its light, only its
- * edges) is the music's (`media-mix.ts`). Drawn with Butterchurn's own WebGL context, into its own buffer, leaving its
- * state as it was.
+ * edges) is the music's (`media-mix.ts`). A shared screen or window (`screen.ts`) goes in the same way, whole and
+ * as it is: all of it shown, nothing taken out. Drawn with Butterchurn's own WebGL context, into its own buffer,
+ * leaving its state as it was.
  */
 import type { ButterchurnRenderer } from "butterchurn";
 import { type Backdrop, type MediaMix, PALE, amountOver, backdropOf, floatSize, placementOf, shownAt } from "./media-mix";
@@ -22,7 +23,7 @@ void main() {
 /**
  * The clip, filling the frame (`place` 0: `fit` is how much of its width and height it shows, kept to its shape) or
  * floating in the middle at its own shape (1: `size` is its rectangle, of the frame; its edges fading, an ellipse's
- * unless its background's taken out: no box), its background taken out if it's flat (`keyed`: near `bg` goes), and as much of the rest
+ * unless its background's taken out or it's a screen, `boxed`, shown to its edges: no box), its background taken out if it's flat (`keyed`: near `bg` goes), and as much of the rest
  * as the mode lets through: all of it, its light (dark parts let the preset's black through), or its edges (outlines
  * that glow); its colours a little richer.
  */
@@ -38,6 +39,7 @@ uniform float amount;
 uniform int mode;
 uniform vec2 key;
 uniform int keyed;
+uniform int boxed;
 uniform vec3 bg;
 uniform float saturation;
 uniform float bright;
@@ -53,7 +55,7 @@ void main() {
     float e = min(min(p.x, 1.0 - p.x), min(p.y, 1.0 - p.y));
     // Its background taken out, its edge only softened (what's left is the subject); else it fades out from the middle
     // as an ellipse, so it reads as a glow, not a box.
-    inside = keyed == 1 ? smoothstep(0.0, 0.06, e) : (1.0 - smoothstep(0.55, 1.0, length((p - 0.5) * 2.0))) * smoothstep(0.0, 0.02, e);
+    inside = keyed == 1 ? smoothstep(0.0, 0.06, e) : boxed == 1 ? smoothstep(0.0, 0.004, e) : (1.0 - smoothstep(0.55, 1.0, length((p - 0.5) * 2.0))) * smoothstep(0.0, 0.02, e);
   }
   if (inside <= 0.0) {
     color = vec4(0.0);
@@ -132,10 +134,12 @@ export class Brake {
   }
 }
 
-/** What's being fed: a clip or a picture, and its texture. */
+/** What's being fed: a clip, a picture or a screen, and its texture. */
 interface Fed {
   id: string;
   el: HTMLVideoElement | HTMLImageElement;
+  /** A screen shared (live: no background looked for, shown whole and as it is). */
+  live: boolean;
   width: number;
   height: number;
   /** A frame of it is on the GPU. */
@@ -146,6 +150,11 @@ interface Fed {
   backdrop: Backdrop | null;
   looked: number;
 }
+
+/** What the feed is given: a clip or a picture by its URL, or a screen shared (`screen.ts`). */
+export type FedMedia =
+  | { id: string; kind: "video" | "image"; src: string; from?: number; rate?: number }
+  | { id: string; kind: "stream"; stream: MediaStream; from?: number; rate?: number };
 
 export class MediaFeed {
   private program: WebGLProgram | null = null;
@@ -162,16 +171,36 @@ export class MediaFeed {
 
   constructor(private readonly gl: WebGL2RenderingContext) {}
 
-  /** What it feeds: a clip or picture's URL (`kind`), or nothing. A clip plays muted, looping, from `from` seconds in. */
-  show(media: { id: string; src: string; kind: "video" | "image"; from?: number; rate?: number } | null): void {
-    if (media?.id === this.fed?.id) {
-      if (media && this.fed?.el instanceof HTMLVideoElement && media.rate) this.fed.el.playbackRate = media.rate;
+  /**
+   * What it feeds: a clip or picture's URL (`kind`), a screen's stream, or nothing. A clip plays muted, looping, from
+   * `from` seconds in.
+   */
+  show(media: FedMedia | null): void {
+    const same = media?.id === this.fed?.id && (media?.kind !== "stream" || (this.fed?.el as HTMLVideoElement).srcObject === media.stream);
+    if (same) {
+      if (media && this.fed?.el instanceof HTMLVideoElement && !this.fed.live && media.rate) this.fed.el.playbackRate = media.rate;
       return;
     }
     this.release();
     if (!media) return;
-    const fed: Fed = { id: media.id, el: media.kind === "video" ? document.createElement("video") : new Image(), width: 0, height: 0, loaded: false, taken: -1, backdrop: null, looked: 0 };
-    if (fed.el instanceof HTMLVideoElement) {
+    const live = media.kind === "stream";
+    const fed: Fed = { id: media.id, el: media.kind === "image" ? new Image() : document.createElement("video"), live, width: 0, height: 0, loaded: false, taken: -1, backdrop: null, looked: 0 };
+    if (media.kind === "stream" && fed.el instanceof HTMLVideoElement) {
+      const video = fed.el;
+      video.muted = true;
+      video.playsInline = true;
+      // (Its size changes when the window shared is resized.)
+      const sized = () => {
+        fed.width = video.videoWidth;
+        fed.height = video.videoHeight;
+      };
+      video.addEventListener("loadedmetadata", () => {
+        sized();
+        void video.play().catch(() => {});
+      });
+      video.addEventListener("resize", sized);
+      video.srcObject = media.stream;
+    } else if (media.kind === "video" && fed.el instanceof HTMLVideoElement) {
       const video = fed.el;
       video.muted = true;
       video.loop = true;
@@ -186,7 +215,7 @@ export class MediaFeed {
         void video.play().catch(() => {});
       });
       video.src = media.src;
-    } else {
+    } else if (media.kind === "image" && fed.el instanceof HTMLImageElement) {
       const img = fed.el;
       img.crossOrigin = "anonymous";
       img.decoding = "async";
@@ -206,7 +235,7 @@ export class MediaFeed {
 
   /** Slow motion: the clip plays at `rate` (the picture's pace). */
   setRate(rate: number): void {
-    if (this.fed?.el instanceof HTMLVideoElement && this.fed.el.playbackRate !== rate) this.fed.el.playbackRate = rate;
+    if (this.fed?.el instanceof HTMLVideoElement && !this.fed.live && this.fed.el.playbackRate !== rate) this.fed.el.playbackRate = rate;
   }
 
   /**
@@ -222,7 +251,7 @@ export class MediaFeed {
     if (!this.program && !this.build()) return false;
     if (!this.upload(fed)) return false;
     const every = fed.looked < BACKDROP_FIRST.times ? BACKDROP_FIRST.every : BACKDROP_EVERY;
-    if (!fed.backdrop || (fed.el instanceof HTMLVideoElement && this.frames % every === 0)) {
+    if (!fed.live && (!fed.backdrop || (fed.el instanceof HTMLVideoElement && this.frames % every === 0))) {
       // (Once its background's been seen as flat it stays so unless it's clearly not: a dancer crossing it is no change.)
       fed.backdrop = this.backdropOf(fed) ?? fed.backdrop;
       fed.looked++;
@@ -230,19 +259,22 @@ export class MediaFeed {
     const frameAspect = renderer.texsizeX / renderer.texsizeY;
     const mediaAspect = fed.width / fed.height;
     const keyed = fed.backdrop?.flat ?? false;
-    const place = placementOf(mediaAspect, frameAspect);
+    // A screen floats at its own shape, all of it (a 16:9 one fills the frame): its edges are where its picture is.
+    const place = fed.live ? "float" : placementOf(mediaAspect, frameAspect);
     // Punched in a little on each kick.
     const punch = 1 + 0.06 * Math.max(0, Math.min(1, hit));
     // Filling the frame, kept to its shape: the wider of the two shows less of its width.
     const fit = mediaAspect > frameAspect ? [frameAspect / mediaAspect, 1] : [1, mediaAspect / frameAspect];
     const zoom = Math.max(1, mix.zoom) * punch;
-    const size = floatSize(mediaAspect, frameAspect, mix.size).map((v) => v * punch);
+    const contain = mediaAspect > frameAspect ? [1, frameAspect / mediaAspect] : [mediaAspect / frameAspect, 1];
+    const size = (fed.live ? contain : floatSize(mediaAspect, frameAspect, mix.size)).map((v) => v * punch);
     // On a background taken out, its light is all of it (what's left is the subject). On top, footage shows only its
     // light or its edges: the look shows through its darks (all of it on top would hide the look).
     // A pale clip whose background can't be taken out washes the look out: only its outlines.
     const pale = !keyed && (fed.backdrop?.light ?? 0) > PALE;
     const into = pale ? "edges" : keyed && mix.mode === "light" ? "whole" : mix.mode;
-    const onTop = pale ? "edges" : keyed ? (mix.mode === "edges" ? "edges" : "whole") : mix.mode === "whole" ? "light" : mix.mode;
+    // A screen as it is (it's read as itself: its panels, its text), the look showing through as much as it isn't.
+    const onTop = fed.live ? mix.mode : pale ? "edges" : keyed ? (mix.mode === "edges" ? "edges" : "whole") : mix.mode === "whole" ? "light" : mix.mode;
     const gain = this.brake.gain;
     const blend = gl.getParameter(gl.BLEND) as boolean;
     gl.useProgram(this.program);
@@ -257,6 +289,7 @@ export class MediaFeed {
     gl.uniform2f(this.uniforms.fit, fit[0] / zoom, fit[1] / zoom);
     gl.uniform2f(this.uniforms.size, size[0], size[1]);
     gl.uniform1i(this.uniforms.keyed, keyed ? 1 : 0);
+    gl.uniform1i(this.uniforms.boxed, fed.live ? 1 : 0);
     const bg = fed.backdrop?.color ?? [0, 0, 0];
     gl.uniform3f(this.uniforms.bg, bg[0], bg[1], bg[2]);
     gl.uniform2f(this.uniforms.texel, 1.5 / fed.width, 1.5 / fed.height);
@@ -276,8 +309,8 @@ export class MediaFeed {
     // Into the feedback (the next frame warps it in), then on top of what was shown.
     pass(renderer.targetFrameBuffer, renderer.texsizeX, renderer.texsizeY, into, amountOver(mix, hit, seconds), mix.key);
     // Footage on top: less of it, and only its brighter light (all of a frame's mids on top wash the look pale).
-    const footage = !keyed && onTop === "light";
-    pass(null, gl.drawingBufferWidth, gl.drawingBufferHeight, onTop, shownAt(mix, hit) * (keyed ? 1 : FOOTAGE_ON_TOP), footage ? [0.4, 0.85] : mix.key);
+    const footage = !keyed && !fed.live && onTop === "light";
+    pass(null, gl.drawingBufferWidth, gl.drawingBufferHeight, onTop, shownAt(mix, hit) * (keyed || fed.live ? 1 : FOOTAGE_ON_TOP), footage ? [0.4, 0.85] : mix.key);
     // Butterchurn's state as it left it (it sets the rest itself each frame).
     gl.bindVertexArray(null);
     gl.bindTexture(gl.TEXTURE_2D, null);
@@ -355,7 +388,7 @@ export class MediaFeed {
       gl.linkProgram(program);
       if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) ?? "program");
       this.program = program;
-      for (const name of ["media", "place", "fit", "size", "texel", "amount", "mode", "key", "keyed", "bg", "saturation", "bright"]) this.uniforms[name] = gl.getUniformLocation(program, name);
+      for (const name of ["media", "place", "fit", "size", "texel", "amount", "mode", "key", "keyed", "boxed", "bg", "saturation", "bright"]) this.uniforms[name] = gl.getUniformLocation(program, name);
       // Its own vertex array: Butterchurn's attributes are left alone.
       this.vao = gl.createVertexArray();
       gl.bindVertexArray(this.vao);
@@ -384,6 +417,8 @@ export class MediaFeed {
     const el = this.fed?.el;
     if (el instanceof HTMLVideoElement) {
       el.pause();
+      // (A screen's stream is its sharer's to stop: only let go of here.)
+      el.srcObject = null;
       el.removeAttribute("src");
       el.load();
     }
