@@ -44,6 +44,20 @@ describe("how the user's clips go into the feedback", () => {
     expect(at30).toBeCloseTo(at60, 6);
   });
 
+  it("shows a screen whole, mostly as itself, less on top than a clip and flashing up more on the kicks", () => {
+    const random = seededRandom("screen");
+    for (const intensity of [0.2, 0.5, 0.9]) {
+      const clip = mixFor({ intensity, slow: 0 }, () => 0.1);
+      const screen = mixFor({ intensity, slow: 0 }, random, "screen");
+      expect(screen.zoom).toBe(1);
+      expect(screen.size).toBe(1);
+      expect(screen.show).toBeLessThan(clip.show);
+      expect(screen.showKick).toBeGreaterThan(clip.showKick);
+    }
+    const whole = Array.from({ length: 200 }, () => mixFor({ intensity: 0.5, slow: 0 }, random, "screen").mode).filter((m) => m === "whole").length;
+    expect(whole).toBeGreaterThan(100);
+  });
+
   it("follows a kick's hit up at once and lets it fall away", () => {
     const kick = new KickHit();
     expect(kick.step(0.8, 1 / 60)).toBe(0.8);

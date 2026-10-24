@@ -71,7 +71,8 @@ describe("visualizerKey", () => {
 
   it("leaves the app's own shortcuts alone", () => {
     expect(key("KeyR", "r", { metaKey: true })).toBeNull();
-    expect(key("KeyG", "g")).toBeNull();
+    expect(key("KeyJ", "j")).toBeNull();
+    expect(key("KeyG", "g")).toEqual({ kind: "screen" });
     expect(key("Escape", "Escape")).toEqual({ kind: "close" });
   });
 });

@@ -56,7 +56,9 @@ import { type Feeding, MilkDrop } from "./milkdrop";
 import { useVisualizerMedia } from "./media-library";
 import { nextSet } from "./media-sets";
 import { KickHit, mixFor, pickMedia } from "./media-mix";
-import { MediaPanel } from "./media-panel";
+import { MediaPanel, type MediaTab } from "./media-panel";
+import { SCREEN_MEDIA, useVisualizerScreen } from "./screen";
+import { desktopScreens } from "@/lib/desktop";
 import { VISUALIZER_KEYS, visualizerKey } from "./keys";
 import { useLookRatings } from "./look-ratings";
 import { ImageSlots, LiveSource } from "./live-source";
@@ -110,8 +112,12 @@ const RATED_MS = 1800;
 /** Why a look changes when the visualizer picks it itself (the music's reasons): left soon after, it's a skip. */
 const PUT_UP: ReadonlySet<SwitchReason> = new Set(["drop", "breakdown", "song", "quiet", "fit", "phrase", "schedule"]);
 
-/** The user's taste as it is now (their ratings), for a look on a kind of song. */
-const appealNow = (look: string, character: SongCharacter | null) => useLookRatings.getState().taste.appeal(look, character);
+/**
+ * The user's taste as it is now (their ratings), for a look on a kind of song. While a screen's shared, only MilkDrop's
+ * looks show it, so only they're picked (by the music, or shuffled: one asked for by name still shows).
+ */
+const appealNow = (look: string, character: SongCharacter | null) =>
+  useVisualizerScreen.getState().shared && !milkdropPreset(look) ? 0 : useLookRatings.getState().taste.appeal(look, character);
 
 /** The first downbeat at or after `after`: the last one heard, carried on a bar at a time (null: none known yet). */
 function nextDownbeat(rhythm: MusicAnalysis | null | undefined, after: number): number | null {
@@ -278,6 +284,12 @@ export default function NowPlayingView() {
     show(lookId ?? pickWanted(pool, appealNow, characterNow(), Math.random)!.id, "chaos");
   };
 
+  /** `lookId`, or one of MilkDrop's in its place while a screen's shared (only theirs show it). */
+  const forScreen = (lookId: string) => {
+    if (!useVisualizerScreen.getState().shared || milkdropPreset(lookId)) return lookId;
+    return pickWanted(LIVE_LOOKS.filter((l) => milkdropPreset(l.id)), appealNow, characterNow(), Math.random)?.id ?? lookId;
+  };
+
   /** The kind of song playing, as the looks hear it (null: not known yet, or nothing heard). */
   const characterNow = () => {
     const mood = useNowPlaying.getState().live?.signals.mood;
@@ -289,6 +301,19 @@ export default function NowPlayingView() {
    * a moment of it at random, going in as the moment says (`mixFor`). None for any other look, or with none, or off.
    */
   const feedFor = (lookId: string, again = false) => {
+    // A screen shared goes into every MilkDrop look, in place of the clips.
+    const screen = useVisualizerScreen.getState().shared;
+    if (screen) {
+      if (!milkdropPreset(lookId)) return;
+      if (!again && feedingRef.current?.look === lookId && feedingRef.current.feeding.media.id === SCREEN_MEDIA) return;
+      const mood = useNowPlaying.getState().live?.signals.mood;
+      const mix = mixFor(mood ? asHeard(mood) : { intensity: 0.5, slow: latest.current.prefs.pace < 1 ? 1 : 0 }, Math.random, "screen");
+      feedingRef.current = { look: lookId, feeding: { media: { id: SCREEN_MEDIA, kind: "stream", stream: screen.stream }, mix } };
+      useVisualizerMedia.getState().setFeeding(null);
+      logger.debug(`${screen.name} into ${liveLook(lookId)?.name ?? lookId}'s feedback (${mix.mode})`);
+      return;
+    }
+    if (feedingRef.current?.feeding.media.id === SCREEN_MEDIA) feedingRef.current = null;
     const list = useVisualizerMedia.getState().media;
     if (!useVisualizerPrefs.getState().media || !list.length) {
       if (feedingRef.current) feedingRef.current = null;
@@ -524,7 +549,7 @@ export default function NowPlayingView() {
       director.reset();
       director.setPace(paceShown.current, time);
       if (!first) source.restart();
-      show(latest.current.prefs.look, "key", first ? time : 0, { type: null });
+      show(forScreen(latest.current.prefs.look), "key", first ? time : 0, { type: null });
       // The rating mode, asked for before it could start (the assistant opening the visualizer for it).
       const asked = useLookRatings.getState().asked;
       if (asked !== null) {
@@ -629,6 +654,19 @@ export default function NowPlayingView() {
     const t = setTimeout(() => setSetNote(null), RATED_MS);
     return () => clearTimeout(t);
   }, [mediaSetId]);
+  // A screen or window shared (G, the media panel's Screen): into the MilkDrop look shown, and one of theirs put up if
+  // it isn't one; out again when it stops. Sharing stops when the visualizer closes.
+  const screen = useVisualizerScreen((s) => s.shared);
+  useEffect(() => () => useVisualizerScreen.getState().stop(), []);
+  useEffect(() => {
+    // (Not started yet: it starts on one of MilkDrop's, `forScreen`.)
+    const look = director.look;
+    if (!look) return;
+    const wanted = forScreen(look);
+    if (wanted !== look) show(wanted, "key");
+    else feedFor(look, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen]);
   const mediaOn = prefs.media;
   const nextMedia = prefs.nextMedia;
   const mediaChanged = useRef({ list: mediaList, on: mediaOn, next: nextMedia });
@@ -637,7 +675,7 @@ export default function NowPlayingView() {
     mediaChanged.current = { list: mediaList, on: mediaOn, next: nextMedia };
     const look = director.look;
     if (!look) return;
-    const gone = feedingRef.current && !mediaList.some((m) => m.asset.id === feedingRef.current!.feeding.media.id);
+    const gone = feedingRef.current && feedingRef.current.feeding.media.id !== SCREEN_MEDIA && !mediaList.some((m) => m.asset.id === feedingRef.current!.feeding.media.id);
     if (nextMedia !== was.next || mediaOn !== was.on || gone || wantedMedia || (!feedingRef.current && mediaList.length)) feedFor(look, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mediaList, mediaOn, nextMedia, wantedMedia]);
@@ -736,6 +774,7 @@ export default function NowPlayingView() {
   // Every setting the player plays (D), or the user's clips and pictures (one panel at a time).
   const [panel, setPanelOpen] = useState(false);
   const [mediaPanel, setMediaPanelOpen] = useState(false);
+  const [mediaTab, setMediaTab] = useState<MediaTab>("yours");
   const setPanel = (open: boolean | ((was: boolean) => boolean)) => {
     setPanelOpen(open);
     setMediaPanelOpen(false);
@@ -948,6 +987,17 @@ export default function NowPlayingView() {
           } else prefs.setMedia(!prefs.media);
           return wake();
         }
+        case "screen": {
+          // Shared: stopped. Else the panel's Screen, to pick one (a browser's picker opens at once: a key is a gesture).
+          const vis = useVisualizerScreen.getState();
+          if (vis.shared) vis.stop();
+          else {
+            setMediaTab("screen");
+            setMediaPanel(true);
+            if (!desktopScreens()) void vis.share();
+          }
+          return wake();
+        }
         case "mediaSet": {
           const vis = useVisualizerMedia.getState();
           const next = nextSet(vis.sets, vis.setId);
@@ -1156,7 +1206,7 @@ export default function NowPlayingView() {
             <HudButton label="Distort, feedback and frame (D)" onClick={() => setPanel((p) => !p)} active={panel}>
               <PiSlidersHorizontal />
             </HudButton>
-            <HudButton label="Your clips and pictures, in the feedback" onClick={() => setMediaPanel((p) => !p)} active={mediaPanel}>
+            <HudButton label="Your clips, pictures and screen, in the feedback" onClick={() => setMediaPanel((p) => !p)} active={mediaPanel}>
               <PiFilmStrip />
             </HudButton>
             <HudButton label="Keys" onClick={() => setHelp((h) => !h)} active={help}>
@@ -1203,7 +1253,7 @@ export default function NowPlayingView() {
           }}
         />
       )}
-      {mediaPanel && !hudHidden && !compact && <MediaPanel milkdrop={!!milkdropPreset(showing)} />}
+      {mediaPanel && !hudHidden && !compact && <MediaPanel milkdrop={!!milkdropPreset(showing)} tab={mediaTab} onTab={setMediaTab} />}
       {rating && !hudHidden && (
         <RatingBar
           look={rating.look}

@@ -35,6 +35,12 @@ contextBridge.exposeInMainWorld("editorDesktopInfo", {
   stage: {
     pin: (name: string, on: boolean) => ipcRenderer.send("stage:pin", name, on),
   },
+  // The screens and other programs' windows the visualizer may see (electron/screen-share.ts): listed, and one picked
+  // for the next screen share.
+  screen: {
+    sources: () => ipcRenderer.invoke("screen-sources") as Promise<{ sources: { id: string; name: string; kind: "screen" | "window"; thumbnail: string }[]; access: string }>,
+    choose: (id: string) => ipcRenderer.invoke("screen-choose", id) as Promise<void>,
+  },
   // Whether the engine may read inputs (recording): macOS asks YTStudio, which started it.
   microphone: {
     status: () => ipcRenderer.invoke("microphone-status") as Promise<string>,

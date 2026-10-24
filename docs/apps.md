@@ -100,7 +100,7 @@ The plan, as it was:
 - `update:desktop` and `test:desktop`.
 
 Music isn't built here. The Visualizer opens straight into the visualizer: the stage, its keys, its looks, Your media
-and Your taste. It still listens with Electron's grant (`answerListening`).
+and Your taste. It still listens with Electron's grant (`answerScreenShares`).
 - **Done when:** the three apps install side by side, each opens its own files from Finder and Explorer, and each
   exports (Video: a cross dissolve; Photo: a JPEG; Visualizer: it plays to Spotify).
 

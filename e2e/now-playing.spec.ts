@@ -437,7 +437,7 @@ test("Now Playing's media: clips and pictures of the user's, melting into MilkDr
 
   // A picture added from the media panel: kept in the Library's Visualizer folder, and fed into the look's feedback.
   await page.mouse.move(410, 310);
-  await view.getByRole("button", { name: "Your clips and pictures, in the feedback" }).click();
+  await view.getByRole("button", { name: "Your clips, pictures and screen, in the feedback" }).click();
   const panel = view.locator("[data-media-panel]");
   await expect(panel).toContainText("Nothing yet");
   const png = await page.evaluate(() => {
@@ -532,6 +532,72 @@ test("Now Playing's media: clips and pictures of the user's, melting into MilkDr
   await expect(milkdrop).toHaveAttribute("data-media", (await online.getAttribute("data-media"))!);
   const after = await (await page.request.get("/api/library")).json();
   expect(after.media.some((m: { origin?: string; kind: string }) => m.origin === "web:video:amenbreak01" && m.kind === "video")).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(view).toHaveCount(0);
+});
+
+test("Now Playing's screen: a window or screen shared into MilkDrop's looks, the others not picked while it is", async ({ page }) => {
+  // The browser's picker stands in for the screen (a moving picture, as a window shared is); listening's, asking for
+  // sound, goes on as it was.
+  await page.addInitScript(() => {
+    const listen = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getDisplayMedia = async (options) => {
+      if (options?.audio) return listen(options);
+      const canvas = document.createElement("canvas");
+      canvas.width = 640;
+      canvas.height = 360;
+      const ctx = canvas.getContext("2d")!;
+      let n = 0;
+      setInterval(() => {
+        ctx.fillStyle = "#202830";
+        ctx.fillRect(0, 0, 640, 360);
+        ctx.fillStyle = "#ff8800";
+        ctx.fillRect((n++ * 7) % 600, 120, 40, 120);
+      }, 33);
+      return canvas.captureStream(30);
+    };
+  });
+  await page.request.post("/api/now-playing", { data: { action: "play" } });
+  await page.goto("/");
+  await visualizerButton(page).click();
+  const view = page.locator("[data-now-playing-view]");
+  await expect(view.locator('[data-slot="visualizer-canvas"]')).toHaveAttribute("data-drawn", "clips", { timeout: 20_000 });
+
+  // On one of ours (not MilkDrop's: the first look is), staying on it.
+  await page.mouse.move(400, 300);
+  await view.getByLabel("Change looks").selectOption("off");
+  await expect(view).not.toHaveAttribute("data-showing", /^md-/);
+
+  // Shared from the media panel's Screen: a MilkDrop look comes on, with the screen in it.
+  await page.mouse.move(410, 310);
+  await view.getByRole("button", { name: "Your clips, pictures and screen, in the feedback" }).click();
+  const panel = view.locator("[data-media-panel]");
+  await panel.getByRole("tab", { name: "Screen" }).click();
+  await panel.getByRole("button", { name: "Choose a screen or window…" }).click();
+  await expect(panel.locator("[data-screen-shared]")).toContainText("The screen");
+  // (Once MilkDrop's loaded: the look before shows till then.)
+  await expect(view).toHaveAttribute("data-showing", /^md-/, { timeout: 20_000 });
+  const milkdrop = page.locator("canvas[data-milkdrop]");
+  await expect(milkdrop).toHaveAttribute("data-milkdrop", "ready");
+  await expect(milkdrop).toHaveAttribute("data-media", "screen");
+  await expect.poll(async () => Number(await milkdrop.getAttribute("data-fed")), { timeout: 10_000 }).toBeGreaterThan(30);
+
+  // Looks picked while it's shared are MilkDrop's.
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press("r");
+    await expect(view).toHaveAttribute("data-showing", /^md-/);
+  }
+  await expect(milkdrop).toHaveAttribute("data-media", "screen");
+
+  // Stopped: out of the look (the user's clips back, if they have any). G shares again (a browser's picker at once) and
+  // stops it.
+  await panel.getByRole("button", { name: "Stop sharing" }).click();
+  await expect(panel.locator("[data-screen-shared]")).toHaveCount(0);
+  await expect(milkdrop).not.toHaveAttribute("data-media", "screen");
+  await page.keyboard.press("g");
+  await expect(milkdrop).toHaveAttribute("data-media", "screen");
+  await page.keyboard.press("g");
+  await expect(milkdrop).not.toHaveAttribute("data-media", "screen");
   await page.keyboard.press("Escape");
   await expect(view).toHaveCount(0);
 });

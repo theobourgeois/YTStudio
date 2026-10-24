@@ -1296,7 +1296,8 @@ export const VIDEO_TOOLS = [
       "breakdown), and the visualizer (Now Playing's, filling the window, made of this editor's effects and 3D scenes, and " +
       "MilkDrop's presets, kind milkdrop): whether it's open, the look it shows, how looks change, and every look there is " +
       "(id, name, kind, and whether the user loved or binned it for the kind of song playing: their taste, which the looks " +
-      "picked go by), and the user's clips and pictures melting into MilkDrop's feedback. Read it before " +
+      "picked go by), the user's clips and pictures melting into MilkDrop's feedback, and the screen or window shared into " +
+      "the looks (and, in the desktop app, which there are). Read it before " +
       "control_now_playing.",
     inputSchema: obj({}),
   }),
@@ -1311,7 +1312,7 @@ export const VIDEO_TOOLS = [
       "looks change by themselves (off: stay; song: follow the music, a look that suits the song's kind and intensity, changed on songs, drops and breakdowns; beat: every beat, cutting on it; " +
       "bars1, bars2, bars4, bars8, bars16, bars32: every so many bars, each a look that suits the music), `pace` slows it all down, " +
       "`rate` loves or bins the look shown for the kind of song playing (as the user's L and B do), `rating` starts or stops the rating mode, " +
-      "`media` turns the user's own clips and pictures (melting into MilkDrop's feedback) on or off or brings in another, `mediaSet` feeds from another of their sets of clips. Only what's given happens: the song first, then the visualizer.",
+      "`media` turns the user's own clips and pictures (melting into MilkDrop's feedback) on or off or brings in another, `mediaSet` feeds from another of their sets of clips, `screen` shares a screen or another program's window (FL Studio...) into MilkDrop's looks or stops it. Only what's given happens: the song first, then the visualizer.",
     inputSchema: obj({
       action: oneOf(["play", "pause", "toggle", "next", "previous"], "What the player does."),
       seek: num("Go to this many seconds into the song.", { minimum: 0 }),
@@ -1367,6 +1368,9 @@ export const VIDEO_TOOLS = [
       ),
       mediaSet: str(
         "The name of one of the user's sets of clips (from now_playing: friends for a music video, nature...) to feed from now on, turning their clips on. Pick one whose name suits the song when the user asks for clips that fit.",
+      ),
+      screen: str(
+        "A screen or another program's window to show in MilkDrop's looks, in place of the clips (only MilkDrop's looks are picked while it's shared): its name, or part of it, from now_playing's list (FL Studio, Screen 1...); off stops sharing. The desktop app only: in a browser the user picks it themselves (G, or the media panel's Screen).",
       ),
       rating: oneOf(
         ["start", "stop"],

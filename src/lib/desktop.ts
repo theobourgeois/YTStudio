@@ -43,6 +43,14 @@ export interface DesktopPanels {
   onClosed(listener: (name: string) => void): () => void;
 }
 
+/** A screen or another program's window the page may see (its picture now, small: a data URL, or empty). */
+export interface ScreenSource {
+  id: string;
+  name: string;
+  kind: "screen" | "window";
+  thumbnail: string;
+}
+
 declare global {
   interface Window {
     editorDesktopInfo?: {
@@ -54,6 +62,8 @@ declare global {
       pathForFile?: (file: File) => string;
       saveFile?: (options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
       microphone?: { status(): Promise<string>; ask(): Promise<string> };
+      /** The screens and other programs' windows a screen share may be (electron/screen-share.ts), and one picked for the next. */
+      screen?: { sources(): Promise<{ sources: ScreenSource[]; access: string }>; choose(id: string): Promise<void> };
       /** The system's Open dialog for a project (a `.ytvid`, `.ytsng` or `.ytimg` package); null if cancelled. */
       chooseProject?: (defaultPath?: string) => Promise<string | null>;
       /** The system's dialog for a folder; null if cancelled. */
@@ -91,6 +101,12 @@ export type DesktopCommand = "home" | "open" | "newProject" | "reveal" | "closeT
 
 /** Whether the editor runs in the desktop app rather than a browser tab. */
 export const isDesktop = typeof window !== "undefined" && window.editorDesktopInfo !== undefined;
+
+/**
+ * What a screen share may be, in the desktop app (undefined in a browser, whose own picker asks): every screen and
+ * every other program's window, and macOS's answer about recording the screen ("granted", "denied"...).
+ */
+export const desktopScreens = () => (typeof window === "undefined" ? undefined : window.editorDesktopInfo?.screen);
 
 /** The native windows' side of the desktop app, if this is it (a browser tab keeps its windows in the page). */
 export const desktopPanels = (): DesktopPanels | undefined => (typeof window === "undefined" ? undefined : window.editorDesktopInfo?.panels);

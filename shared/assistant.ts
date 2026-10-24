@@ -529,6 +529,8 @@ export function describeToolCall(rawName: string, input: unknown): string {
       if (f("media") === "next") return "Bring in another clip";
       if (f("media") === "on") return "Melt your clips into the visualizer";
       if (f("media") === "off") return "Take your clips out of the visualizer";
+      if (f("screen") === "off") return "Stop sharing the screen";
+      if (typeof f("screen") === "string") return `Share ${String(f("screen"))} into the visualizer`;
       if (f("rating") === "start") return "Rate the visualizer's looks";
       if (f("rating") === "stop") return "Stop rating the looks";
       if (typeof f("look") === "string") return "Change the visualizer's look";

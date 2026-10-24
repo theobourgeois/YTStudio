@@ -32,6 +32,7 @@ export type VisualizerAction =
   | { kind: "rating" }
   | { kind: "media"; next: boolean }
   | { kind: "mediaSet" }
+  | { kind: "screen" }
   | { kind: "hud" }
   | { kind: "help" }
   | { kind: "mood" }
@@ -93,6 +94,8 @@ export function visualizerKey(e: Pick<KeyboardEvent, "key" | "code" | "shiftKey"
       return { kind: "media", next: !e.shiftKey };
     case "KeyK":
       return { kind: "mediaSet" };
+    case "KeyG":
+      return { kind: "screen" };
     case "KeyL":
       return { kind: "rate", verdict: "love" };
     case "KeyB":
@@ -122,6 +125,7 @@ export const VISUALIZER_KEYS: { keys: string; does: string }[] = [
   { keys: "N", does: "Another of your clips, melting into the feedback" },
   { keys: "⇧N", does: "Your clips in the feedback, on or off" },
   { keys: "K", does: "The next set of your clips (friends, nature...)" },
+  { keys: "G", does: "A screen or window in the looks (FL Studio...), or stop sharing it" },
   { keys: "M", does: "The same look, another way" },
   { keys: "=", does: "Chaos: a roll of another recipe" },
   { keys: "-", does: "Mutate: the chaos shown, nudged" },
