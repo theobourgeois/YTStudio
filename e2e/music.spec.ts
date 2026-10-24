@@ -1601,11 +1601,15 @@ test("an effect goes in a mixer track's slot: chosen from the effect plugins, it
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await slots()).slice(0, 3)).toEqual([null, "Fake Delay", null]);
 
-  // Its name opens its window (the engine's), and closes it again.
+  // Its window (the engine's) opens once it's loaded, as FL's does; its name closes it, and opens it again.
+  const closer = inspector.getByRole("button", { name: /Fake Delay: close its window/ });
+  await expect(closer).toHaveAttribute("aria-pressed", "true");
+  await closer.click();
   const name = inspector.getByRole("button", { name: /Fake Delay: open its window/ });
+  await expect(name).toHaveAttribute("aria-pressed", "false");
   await name.click();
-  await expect(inspector.getByRole("button", { name: /Fake Delay: close its window/ })).toHaveAttribute("aria-pressed", "true");
-  await inspector.getByRole("button", { name: /Fake Delay: close its window/ }).click();
+  await expect(closer).toHaveAttribute("aria-pressed", "true");
+  await closer.click();
   await expect(name).toHaveAttribute("aria-pressed", "false");
 
   // It delays its track (the stand-in says 10 ms): the inspector says so, and the strip has a clock. A manual offset is typed in ms.

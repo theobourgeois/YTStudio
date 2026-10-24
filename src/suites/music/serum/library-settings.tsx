@@ -5,9 +5,11 @@ import type { SerumLibraryFolder, SerumLibraryFolders } from "@shared/music/seru
 import { SettingsGroup, SettingsRow } from "@/components/settings/settings-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { chooseFolder } from "@/lib/desktop";
 import { IS_MAC } from "@/lib/key-labels";
 import { musicApi } from "../api";
+import { useMusicPreferences } from "../preferences";
 import { useSerumUi } from "./store";
 
 const SOURCE_TITLES: Record<SerumLibraryFolder["source"], string> = {
@@ -15,6 +17,20 @@ const SOURCE_TITLES: Record<SerumLibraryFolder["source"], string> = {
   serum1: "Serum 1's presets",
   added: "Added",
 };
+
+/** Whether Serum 2 channels open in the player or in Serum's own window. Turned off, the open players close. */
+function SerumPlayerRow() {
+  const on = useMusicPreferences((s) => s.serumPlayer);
+  const set = (next: boolean) => {
+    useMusicPreferences.getState().setSerumPlayer(next);
+    if (!next) for (const id of useSerumUi.getState().openIds) useSerumUi.getState().close(id);
+  };
+  return (
+    <SettingsRow title="Open Serum 2 in the player" description="A Serum 2 channel opens in YTStudio's Serum player. Off, it opens Serum's own window, as any other plugin does.">
+      <Switch checked={on} onCheckedChange={set} aria-label="Open Serum 2 in the player" />
+    </SettingsRow>
+  );
+}
 
 const presetCount = (n: number) => `${n} preset${n === 1 ? "" : "s"}`;
 
@@ -64,6 +80,7 @@ export function SerumLibrarySettings() {
   return (
     <div ref={group} tabIndex={-1} className="outline-none">
       <SettingsGroup title="Serum player" description="Where a Serum 2 channel's player finds presets: Serum's own folders, and any you add. Each preset is listed once, wherever it is.">
+        <SerumPlayerRow />
         {!folders && <SettingsRow title="Folders" description={error ? <span className="text-destructive">{error}</span> : "Reading Serum's folders…"} />}
         {folders?.folders.map((folder) => (
           <SettingsRow

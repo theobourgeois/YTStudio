@@ -287,7 +287,8 @@ The icon at the top left of each clip opens it:
   Ctrl+right-click toggles back. **Shift+0** centres on the play position.
 - **Scroll**: the mouse wheel scrolls tracks up and down; middle-button drag (or Left-Shift+right-drag)
   pans both ways.
-- **Vertical zoom**: the track height control; the dividers between headers for one track.
+- **Vertical zoom**: the track height control; the dividers between headers for one track; Ctrl+middle-drag
+  (Théo: down makes the tracks taller, up shorter).
 
 ## The Picker panel
 
@@ -400,8 +401,9 @@ the snap menu; Ctrl+A / D, Shift+I, Shift+C, Ctrl+C / X / V (pasted at the first
 (with the time selection), Delete (everything, when nothing's selected), Shift+arrows, Alt+M /
 Alt+Shift+M, Ctrl+Q, Ctrl+Ins / Ctrl+Alt+Ins / Ctrl+Del, Ctrl+Enter, Ctrl+← / →, Page Up / Down,
 Shift+1…5, Shift+0, Home, Alt+P, Esc; the ruler (a click sets where the song plays from, and moves a
-playing song; Ctrl+drag or a double-click and drag selects time, which loops; a right-click or a
-double-click clears it); the wheel (tracks), Shift+wheel (time), Ctrl+wheel (zoom), middle-drag (pan);
+playing song; Ctrl+drag or a double-click and drag selects time and its clips, which loops; a right-click or a
+double-click clears both; a double-click is two clicks within 300 ms, quicker than the system's); the wheel
+(tracks), Shift+wheel (time), Ctrl+wheel (zoom), middle-drag (pan), Ctrl+middle-drag (track height);
 track headers (double-click renames, the mute light, a right-click or Ctrl+click on it solos, the divider
 drags a track's height, Alt+click puts it back; the menu: rename, colour, size, select its clips, mute and
 unmute all its clips, solo, insert one, move up / down, delete); the Picker panel (click to choose, drag

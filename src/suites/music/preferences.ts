@@ -17,6 +17,7 @@ const EXPORT_RESAMPLING_KEY = "music-export-resampling";
 const RECORDING_KEY = "music-recording";
 const STRETCH_MODE_KEY = "music-stretch-mode";
 const RESET_ON_STOP_KEY = "music-reset-on-stop";
+const SERUM_PLAYER_KEY = "music-serum-player";
 
 /** How long a count-in can be, in bars (the count-in switch's menu). */
 export const COUNT_IN_BARS = [1, 2, 4] as const;
@@ -107,12 +108,23 @@ interface MusicPreferencesState {
    */
   resetOnStop: boolean;
   setResetOnStop: (on: boolean) => void;
+  /**
+   * A Serum 2 channel opens in the Serum player (`docs/serum/player.md`). Off, it opens Serum's own window,
+   * as any other plugin's.
+   */
+  serumPlayer: boolean;
+  setSerumPlayer: (on: boolean) => void;
 }
 
 const storedSound = storage.getItem(METRONOME_SOUND_KEY);
 const storedStretchMode = storage.getItem(STRETCH_MODE_KEY);
 
 export const useMusicPreferences = create<MusicPreferencesState>((set, get) => ({
+  serumPlayer: storage.getItem(SERUM_PLAYER_KEY) !== "false",
+  setSerumPlayer(serumPlayer) {
+    storage.setItem(SERUM_PLAYER_KEY, String(serumPlayer));
+    set({ serumPlayer });
+  },
   resetOnStop: storage.getItem(RESET_ON_STOP_KEY) === "true",
   setResetOnStop(resetOnStop) {
     storage.setItem(RESET_ON_STOP_KEY, String(resetOnStop));

@@ -226,8 +226,11 @@ const noteAt = (notes: readonly Note[], view: PianoView, x: number, y: number) =
 
 /** The last press, to tell a second one soon after on the same spot: a double-click. (Pointer events don't count clicks.) */
 let lastPress = { at: 0, x: 0, y: 0, target: null as EventTarget | null };
-/** Windows' default double-click time (a Mac's is about the same). */
-const DOUBLE_MS = 500;
+/**
+ * How quick a double-click is (ms): quicker than the system's half second, so two clicks a moment apart
+ * (play from here, then from there) stay two clicks.
+ */
+const DOUBLE_MS = 300;
 
 /** Whether this press is the second of a double-click on the same element. */
 function isDouble(e: Press): boolean {
@@ -663,39 +666,46 @@ export function trackSliceHover(element: Element, ev: { clientX: number; clientY
 
 /**
  * The ruler: a click (or a drag) sets where play starts, and while the song plays, it goes there at
- * once. A double-click and drag (or Ctrl and drag) selects a range of time; a double-click without
- * dragging, or a right-click, clears it.
+ * once. A double-click and drag (or Ctrl and drag) selects a range of time and the notes in it; a double-click
+ * without dragging, or a right-click, clears both.
  */
 export function rulerPointerDown(e: Press) {
   const ctx = pianoContext();
   if (!ctx) return;
   const element = e.currentTarget;
   const { view } = usePiano.getState();
-  const tickAt = (ev: { clientX: number; clientY: number; altKey: boolean }) => snapTick(xToTick(view, local(element, ev).x), ev.altKey ? 1 : ctx.grid, "line");
-  if (e.button === 2) {
-    usePiano.setState({ time: null });
-    return;
-  }
+  // (Never before the pattern's start: the pointer can go past the ruler's left end.)
+  const tickAt = (ev: { clientX: number; clientY: number; altKey: boolean }) => Math.max(0, snapTick(xToTick(view, local(element, ev).x), ev.altKey ? 1 : ctx.grid, "line"));
+  // Cleared, the notes it selected go with it.
+  const clear = () => usePiano.setState({ time: null, selected: new Set() });
+  if (e.button === 2) return clear();
   if (e.button !== 0) return;
   const start = tickAt(e);
   if (isDouble(e) || e.ctrlKey || e.metaKey) {
     const double = !(e.ctrlKey || e.metaKey);
-    startPointerDrag(e, { threshold: 2, onMove: (ev) => selectTime(start, tickAt(ev)), onClick: () => double && usePiano.setState({ time: null }) });
+    startPointerDrag(e, { threshold: 2, onMove: (ev) => selectTime(start, tickAt(ev)), onClick: () => double && clear() });
     return;
   }
-  const transport = useTransport.getState();
-  transport.jumpTo(start);
-  // Dragged: the start follows; a playing song goes along, but not more often than it can be heard.
+  useTransport.getState().jumpTo(start);
+  // Dragged: the start follows; a playing song goes along, but not more often than it can be heard, and
+  // never again to where it went last (held past the ruler's start, every move started the song over at 0).
   let last = performance.now();
+  let jumped = start;
   startPointerDrag(e, {
     threshold: 2,
     onMove(ev) {
+      const tick = tickAt(ev);
+      const transport = useTransport.getState();
       const now = performance.now();
-      if (useTransport.getState().playing && now - last < 60) return useTransport.getState().setStartTick(tickAt(ev));
+      if (tick === jumped || (transport.playing && now - last < 60)) return transport.setStartTick(tick);
       last = now;
-      useTransport.getState().jumpTo(tickAt(ev));
+      jumped = tick;
+      transport.jumpTo(tick);
     },
-    onEnd: () => useTransport.getState().jumpTo(useTransport.getState().startTick),
+    onEnd() {
+      const transport = useTransport.getState();
+      if (transport.startTick !== jumped) transport.jumpTo(transport.startTick);
+    },
   });
 }
 

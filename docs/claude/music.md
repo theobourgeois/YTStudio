@@ -284,7 +284,8 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   presets; his verdicts are in `data/serum-research/feedback.md` (git-ignored, the main checkout's). Serum runs in
   the offline engine to check a preset (`scripts/serum-readout.ts`) and to render a round (`scripts/serum-audition.ts`).
   **The Serum player** (`docs/serum/player.md`, step by step): a Serum 2 channel's window is ours
-  (`src/suites/music/serum/`): Serum's library in one list (`server/music/serum/library.ts`, its ratings Serum's own),
+  (`src/suites/music/serum/`; Settings › Music can turn it off, `serumPlayer`: ask `opensSerumPlayer`, never
+  `isSerum2`, for which window a channel opens): Serum's library in one list (`server/music/serum/library.ts`, its ratings Serum's own),
   presets loaded by a drop on Serum's invisible window, more folders listed with Serum's (Settings › Music:
   `data/serum-library.json`, each preset once by its hash), the sound saved as a preset in Serum's `User` folder
   (never over a factory, pack or Serum 1 one; Serum then told it has it on), the macros live, the mod matrix, envelopes and LFOs

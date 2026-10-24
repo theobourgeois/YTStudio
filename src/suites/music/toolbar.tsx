@@ -203,8 +203,13 @@ function PillButton({ label, title, on, onClick, children }: { label: string; ti
 /** Every button of the toolbar, FL Studio's: one size, so the transport, the switches and the windows' line up. */
 const TOOL = "size-[30px] [&_svg:not([class*=size-])]:size-[18px]";
 
-/** A toolbar button's face: raised, lit as FL's while hovered (`lit`) and while it's on, a shade darker held. */
-const toolFace = (on?: boolean) => cn("raised grid place-items-center rounded-[4px] active:brightness-90", TOOL, on ? "lit" : "text-foreground/80 hover:lit");
+/**
+ * A toolbar button's face: raised, a shade darker held. A command is lit as FL's while hovered (`lit`); a switch
+ * (`on` given) is lit only while it's on, and hovered off it only brightens, so one just turned off looks off
+ * under the pointer still.
+ */
+const toolFace = (on?: boolean) =>
+  cn("raised grid place-items-center rounded-[4px] active:brightness-90", TOOL, on ? "lit" : on === false ? "text-foreground/70 hover:raised-hover hover:text-foreground" : "text-foreground/80 hover:lit");
 
 /** A button of the toolbar, FL Studio's: a switch (`on`) or a command. `menu`: its right-click menu. */
 function TransportButton({ label, title, on, onClick, className, menu, children }: { label: string; title: string; on?: boolean; onClick: () => void; className?: string; menu?: ReactNode; children: ReactNode }) {
