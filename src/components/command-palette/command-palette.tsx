@@ -142,7 +142,7 @@ function Palette({ commands, storageKey, placeholder, onRun }: Required<CommandP
             aria-label={item.title}
             onPointerMove={() => setActive(i)}
             onClick={() => run(item)}
-            className={cn("flex h-8 cursor-pointer items-center gap-2 rounded-md px-2.5 text-[13px]", i === current && "bg-accent", item.disabled && "opacity-45")}
+            className={cn("flex h-8 shrink-0 cursor-pointer items-center gap-2 rounded-md px-2.5 text-[13px]", i === current && "bg-accent", item.disabled && "opacity-45")}
           >
             <span className="grid size-3.5 shrink-0 place-items-center">{item.checked && <PiCheck className="size-3.5 text-brand" />}</span>
             {item.group && <span className="shrink-0 text-muted-foreground">{item.group}:</span>}
