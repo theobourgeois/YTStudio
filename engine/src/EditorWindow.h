@@ -69,6 +69,8 @@ private:
     void timerCallback() override;
     juce::uint32 cloakedAt = 0, lastTick = 0;
     int calmTicks = 0;
+    /** `show` was called while it was still cloaked: it's raised again once it's on the screen. */
+    bool shownCloaked = false;
     /** Its peer may be made again (a style change): the new one belongs to the shell's window too. */
     void parentHierarchyChanged() override;
     using DocumentWindow::keyPressed;

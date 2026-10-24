@@ -281,6 +281,11 @@ void EditorWindow::timerCallback()
         return;
     stopTimer();
     cloakWindow (*this, false);
+    // Shown while it was off the screen: a panel the page raised meanwhile (a menu closing gives the keyboard
+    // back to its panel) would cover a window the user hasn't seen yet. Not over another program, though.
+    if (shownCloaked && appIsInUse())
+        raiseWindow (*this);
+    shownCloaked = false;
 }
 
 EditorWindow::~EditorWindow()
@@ -417,6 +422,8 @@ void EditorWindow::show()
     setVisible (true);
     keepOutOfWindowSwitchers (*this);
     toFront (true);
+    raiseWindow (*this);
+    shownCloaked = isTimerRunning();
 }
 
 bool EditorWindow::keyPressed (const juce::KeyPress& key, juce::Component*)

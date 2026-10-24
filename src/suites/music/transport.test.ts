@@ -29,6 +29,13 @@ describe("tickNow", () => {
     expect(tickNow({ ...wrapped, startedAt: 3000 }, 3000, 120, 96, 384)).toBeNull();
   });
 
+  it("doesn't take play started again elsewhere for the loop's end, before or after the engine answers", () => {
+    const restarted = { ...state, tick: 0, at: 3000, latencyMs: 100 };
+    expect(tickNow({ ...restarted, startedAt: Number.POSITIVE_INFINITY }, 3000, 120, 96, 384)).toBeNull();
+    expect(tickNow({ ...restarted, startedAt: 2995 }, 3050, 120, 96, 384)).toBeNull();
+    expect(tickNow({ ...restarted, startedAt: 2995 }, 3150, 120, 96, 384)).toBeCloseTo(9.6);
+  });
+
   it("holds where play starts while a recording counts in, then moves on from there", () => {
     const counting = { ...state, countIn: 2 };
     expect(tickNow(counting, 1000, 120, 96, 384)).toBe(96);

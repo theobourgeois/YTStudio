@@ -12,6 +12,9 @@ import { addWindowListener, allWindows, isElement, ownerWindow } from "@/lib/win
 import { pageScale, workAreas } from "./bridge";
 import { areaFor } from "./geometry";
 import { type PanelWindow, openPanelWindow } from "./panel-window";
+import { windowsRaised } from "./raised";
+
+export { noteWindowRaised } from "./raised";
 
 interface Popups {
   panel: PanelWindow;
@@ -22,22 +25,12 @@ interface Popups {
   placed: string;
   /** Closes what's in it when the user presses anywhere else (`watchOutside`), while something is. */
   unwatch: (() => void) | null;
-  /** `raised` when the menu opened: a window opened or raised since (by an item chosen in it) keeps the keyboard. */
+  /** `windowsRaised()` when the menu opened: a window opened or raised since (by an item chosen in it) keeps the keyboard. */
   raisedAtOpen: number;
 }
 
-/** How many times the page has opened or raised one of its windows (`noteWindowRaised`). */
-let raised = 0;
 /** How long after a menu closes the keyboard goes back to the window it was opened from: a window opened by its item shows first. */
 const GIVE_BACK_MS = 120;
-
-/**
- * The page opened or brought forward one of its windows: a menu closing then leaves the keyboard where it went.
- * (Given back to the menu's window, a window opened by one of its items, Transpose say, came up behind it.)
- */
-export function noteWindowRaised() {
-  raised++;
-}
 
 let popups: Popups | null = null;
 let users = 0;
@@ -100,7 +93,7 @@ function update() {
   p.unwatch?.();
   p.unwatch = null;
   if (something) {
-    p.raisedAtOpen = raised;
+    p.raisedAtOpen = windowsRaised();
     panels.show(p.panel.name, true);
     p.unwatch = watchOutside(p.panel.win);
   } else {
@@ -110,7 +103,7 @@ function update() {
     const over = p.over;
     const since = p.raisedAtOpen;
     setTimeout(() => {
-      if (!over || raised !== since || popups?.shown) return;
+      if (!over || windowsRaised() !== since || popups?.shown) return;
       if (allWindows().some((win) => win !== p.panel.win && !win.closed && win.document.hasFocus())) return;
       if (over.name) panels.raise(over.name);
       else window.focus();

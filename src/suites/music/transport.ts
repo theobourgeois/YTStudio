@@ -7,6 +7,7 @@ import { clamp } from "@shared/math";
 import { DEFAULT_VELOCITY } from "@shared/music/project";
 import { musicApi } from "./api";
 import { hosted, hostCommand } from "@/lib/host";
+import { noteWindowRaised } from "@/components/windows/native/raised";
 import { useMusicPreferences } from "./preferences";
 
 /**
@@ -16,7 +17,10 @@ import { useMusicPreferences } from "./preferences";
  */
 interface TransportState {
   playing: boolean;
-  /** When this playback began, to distinguish initial latency from a loop wrapping. */
+  /**
+   * When this playback began, or last started again somewhere else (a ruler click while playing), to tell
+   * the latency before it's heard from a loop wrapping.
+   */
   startedAt: number;
   /**
    * A song is being exported: the engine plays nothing else meanwhile (its plugins are the export's), so
@@ -144,9 +148,13 @@ export const NO_PANMEN: Record<string, EnginePanState> = {};
 export const useTransport = create<TransportState>((set, get) => {
   /** Run a transport command, and take what the engine says of itself from its answer. */
   async function run(command: "play" | "stop" | "metronome", body: EngineCommands["metronome"] | EngineCommands["stop"] | { from?: number }) {
+    // Until it answers, a report may already count from where play starts again: nothing before it is the loop's end.
+    if (command === "play") set({ startedAt: Number.POSITIVE_INFINITY });
     try {
       const status = await musicApi.engine(command, body as never);
       set({
+        // Play sent while playing starts again from there: a moment before it's heard isn't the loop's end.
+        ...(command === "play" && { startedAt: performance.now() }),
         playing: status.transport.playing,
         tick: status.transport.tick,
         countIn: status.transport.countIn ?? 0,
@@ -263,6 +271,8 @@ export const useTransport = create<TransportState>((set, get) => {
       if (open && get().channels.loading.includes(channelId)) return showPluginWhenLoaded(channelId);
       if (get().openingEditors.includes(channelId)) return;
       const done = opening(channelId, open);
+      // A menu closing meanwhile (the picker it was chosen in) mustn't raise its panel back over the window.
+      if (open) noteWindowRaised();
       musicApi.engine("channelEditor", { channel: channelId, open }).then(
         (status) => set({ channels: status.channels, openingEditors: done() }),
         (err) => {
@@ -275,6 +285,8 @@ export const useTransport = create<TransportState>((set, get) => {
       if (open && get().effects.loading.includes(effectId)) return showEffectWhenLoaded(effectId);
       if (get().openingEditors.includes(effectId)) return;
       const done = opening(effectId, open);
+      // A menu closing meanwhile (the picker it was chosen in) mustn't raise its panel back over the window.
+      if (open) noteWindowRaised();
       musicApi.engine("effectEditor", { effect: effectId, open }).then(
         (status) => set({ effects: status.effects, openingEditors: done() }),
         (err) => {
@@ -379,7 +391,7 @@ export function afterSongSent() {
   if (pendingPreview) {
     pendingPreview = false;
     void musicApi.engine("play", { from: 0 }).then(
-      (status) => useTransport.setState({ playing: status.transport.playing, tick: status.transport.tick, countIn: status.transport.countIn ?? 0, at: performance.now() }),
+      (status) => useTransport.setState({ startedAt: performance.now(), playing: status.transport.playing, tick: status.transport.tick, countIn: status.transport.countIn ?? 0, at: performance.now() }),
       () => {},
     );
     return;
