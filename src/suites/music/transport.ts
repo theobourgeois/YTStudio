@@ -97,9 +97,9 @@ interface TransportState {
    * a few): until the engine answers, more clicks on its button are ignored, so they can't close it as it comes.
    */
   openingEditors: readonly string[];
-  /** Show or close the window of a plugin channel's plugin. */
+  /** Show or close the window of a plugin channel's plugin (asked for while it loads, it opens once it has). */
   showPlugin: (channelId: string, open: boolean) => void;
-  /** Show or close the window of an effect in the mixer. */
+  /** Show or close the window of an effect in the mixer (asked for while it loads, it opens once it has). */
   showEffect: (effectId: string, open: boolean) => void;
   /** Hold a key on a channel, or let it go (the Piano roll's keyboard, a note being drawn). `key` is a MIDI note. */
   preview: (channelId: string, key: number, on: boolean, velocity?: number) => void;
@@ -260,6 +260,7 @@ export const useTransport = create<TransportState>((set, get) => {
     startOf: () => (get().mode === "song" ? get().songStartTick : get().startTick),
     setMode: (mode) => get().mode !== mode && set({ mode, pausedAt: null }),
     showPlugin(channelId, open) {
+      if (open && get().channels.loading.includes(channelId)) return showPluginWhenLoaded(channelId);
       if (get().openingEditors.includes(channelId)) return;
       const done = opening(channelId, open);
       musicApi.engine("channelEditor", { channel: channelId, open }).then(
@@ -271,6 +272,7 @@ export const useTransport = create<TransportState>((set, get) => {
       );
     },
     showEffect(effectId, open) {
+      if (open && get().effects.loading.includes(effectId)) return showEffectWhenLoaded(effectId);
       if (get().openingEditors.includes(effectId)) return;
       const done = opening(effectId, open);
       musicApi.engine("effectEditor", { effect: effectId, open }).then(
@@ -301,27 +303,47 @@ function opening(id: string, open: boolean): () => readonly string[] {
   };
 }
 
+/** Plugin windows waiting for their plugin to load (asked for once, however often they're clicked meanwhile). */
+const awaitingLoad = new Set<string>();
+
 /**
- * Show a plugin channel's window once the engine has loaded its plugin (a new channel's loads in the
- * background, and its window can't show before), as FL Studio opens a synth it's just added. Gives up
- * if it fails to load, or takes too long.
+ * Show a plugin's window once the engine has loaded its plugin (a new one loads in the background, and its
+ * window can't show before), as FL Studio opens a synth or an effect it's just added. Gives up if it fails to
+ * load, or takes too long.
  */
-export function showPluginWhenLoaded(channelId: string) {
-  const ready = (channels: EngineChannels) => {
-    if (channels.loaded.some((c) => c.channel === channelId)) {
-      useTransport.getState().showPlugin(channelId, true);
+function showWhenLoaded(id: string, statusOf: (state: TransportState) => EngineChannels | EngineEffects, show: () => void) {
+  if (awaitingLoad.has(id)) return;
+  const has = (list: readonly ({ channel: string } | { effect: string })[]) => list.some((entry) => ("channel" in entry ? entry.channel : entry.effect) === id);
+  const ready = (state: TransportState) => {
+    const status = statusOf(state);
+    if (has(status.loaded)) {
+      stop();
+      show();
       return true;
     }
-    return channels.failed.some((c) => c.channel === channelId);
+    if (has(status.failed)) stop();
+    return false;
   };
-  if (ready(useTransport.getState().channels)) return;
   const stop = () => {
-    unsubscribe();
+    awaitingLoad.delete(id);
+    unsubscribe?.();
     clearTimeout(timeout);
   };
-  const unsubscribe = useTransport.subscribe((state, before) => state.channels !== before.channels && ready(state.channels) && stop());
+  awaitingLoad.add(id);
+  let unsubscribe: (() => void) | undefined;
   const timeout = setTimeout(stop, SHOW_WHEN_LOADED_MS);
+  // (Loaded or failed already: nothing to wait for.)
+  if (ready(useTransport.getState()) || !awaitingLoad.has(id)) return;
+  unsubscribe = useTransport.subscribe((state, before) => statusOf(state) !== statusOf(before) && ready(state));
 }
+
+/** Show a plugin channel's window once its plugin has loaded (`showWhenLoaded`). */
+export const showPluginWhenLoaded = (channelId: string) =>
+  showWhenLoaded(channelId, (s) => s.channels, () => useTransport.getState().showPlugin(channelId, true));
+
+/** Show a mixer effect's plugin window once it has loaded (`showWhenLoaded`). */
+export const showEffectWhenLoaded = (effectId: string) =>
+  showWhenLoaded(effectId, (s) => s.effects, () => useTransport.getState().showEffect(effectId, true));
 
 /**
  * Switch between pattern and song mode (the toolbar's PAT / SONG, L). Playing, it goes on in the other mode

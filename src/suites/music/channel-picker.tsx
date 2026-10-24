@@ -9,8 +9,7 @@ import { MorePlugins, PluginPicker, usePluginList, usePluginScan } from "./plugi
 import { useMusic } from "./store";
 import { showPluginWhenLoaded } from "./transport";
 import { useMusicUi } from "./ui";
-import { isSerum2 } from "@shared/music/serum-presets";
-import { useSerumUi } from "./serum/store";
+import { opensSerumPlayer, useSerumUi } from "./serum/store";
 
 /** Ours, before the plugins: the Sampler. */
 const BUILT_IN = "Built in";
@@ -36,7 +35,7 @@ export function ChannelPicker() {
     // opens once it's loaded, as FL Studio's do.
     if (!plugin) useMusicUi.getState().openChannelWindow(id);
     // Serum 2's window is the Serum player (`docs/serum/player.md`).
-    else if (isSerum2(plugin)) useSerumUi.getState().open(id);
+    else if (opensSerumPlayer(plugin)) useSerumUi.getState().open(id);
     else showPluginWhenLoaded(id);
   };
 

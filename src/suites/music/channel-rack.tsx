@@ -72,8 +72,8 @@ import { TrackSelector } from "./mixer/track-selector";
 import { MusicWindow } from "./window";
 import { openConvert } from "./convert/actions";
 import { openExtractStems } from "./stems/actions";
-import { isSerum2 } from "@shared/music/serum-presets";
-import { useSerumUi } from "./serum/store";
+import { opensSerumPlayer, useSerumUi } from "./serum/store";
+import { useMusicPreferences } from "./preferences";
 
 /**
  * A step's width and the gaps between steps and between beats (px): the lights, rows and graph share them.
@@ -588,7 +588,8 @@ const ChannelLead = memo(function ChannelLead({ channel, selected }: { channel: 
   const unreadable = useTransport((s) => s.unreadable.includes(channel.id));
   const settingsOpen = useMusicUi((s) => s.openChannelIds.includes(channel.id));
   // A plugin channel's window is the plugin's own, which the engine shows; Serum 2's is the Serum player.
-  const serum = isPlugin && isSerum2(channel.plugin);
+  const serumPlayer = useMusicPreferences((s) => s.serumPlayer);
+  const serum = isPlugin && opensSerumPlayer(channel.plugin, serumPlayer);
   const playerOpen = useSerumUi((s) => serum && s.openIds.includes(channel.id));
   const pluginOpen = useTransport((s) => s.channels.loaded.some((c) => c.channel === channel.id && c.editorOpen));
   const pluginLoading = useTransport((s) => s.channels.loading.includes(channel.id));

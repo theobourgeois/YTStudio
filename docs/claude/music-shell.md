@@ -57,6 +57,8 @@ open on a 5-Serum song playing, its window dragged, 20 clicks between it and the
 the page in about 10 ms, a drag step moved the window in under 1 ms), but those windows answer the hit tests, so the
 window can't be dragged by the page there. WebView2's SDK comes from NuGet at configure time (engine/CMakeLists.txt) and
 is linked statically. Its profile is kept in `<data>/engine/webview`.
+- **It opens maximised** the first time, and again whenever it was closed maximised (`window.txt` then starts
+  with JUCE's `fs `, and holds the place it goes back to), as FL opens.
 - **No title bar** (JUCE's `DocumentWindow` without one: `ShellWindow::findControlAtPoint` answers the system's hit
   test, which the page's window passes on there with `HTTRANSPARENT`): its edges resize it (5 points in), the page's
   bars drag it (Aero Snap, a double click maximises, as a title bar), and the maximise button is `HTMAXBUTTON`, so

@@ -1,6 +1,6 @@
 import { createContext, type CSSProperties, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { PiCornersIn, PiCornersOut, PiX } from "react-icons/pi";
+import { PiCornersIn, PiCornersOut, PiSpinnerGap, PiX } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
 import { PopupContainerProvider, PortalContainerProvider } from "@/components/ui/portal-container";
@@ -26,6 +26,8 @@ const WindowsContext = createContext<WindowsStore | null>(null);
  * app): where the desktop is, so a window can be put on the screen.
  */
 const NativeDeskContext = createContext<DeskTracker | null>(null);
+/** A native desktop's windows on their way (made, not shown yet): `true` while one is, `false` once it's shown or gone. */
+const OpeningContext = createContext<(id: string, opening: boolean) => void>(() => {});
 
 function useWindowsStore(): WindowsStore {
   const store = useContext(WindowsContext);
@@ -169,6 +171,19 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
   const [measured, setMeasured] = useState<{ width: number; height: number } | null>(null);
   const shown = useRef(false);
   const configured = useRef("");
+  // Until it shows, the desktop says windows are opening (a native one takes a moment to make).
+  const noteOpening = useContext(OpeningContext);
+  useEffect(() => {
+    if (!native) return;
+    if (shown.current) return;
+    noteOpening(id, true);
+    // (Never for long, whatever keeps it: a desktop not measured yet.)
+    const timer = setTimeout(() => noteOpening(id, false), 10_000);
+    return () => {
+      clearTimeout(timer);
+      noteOpening(id, false);
+    };
+  }, [native, panel, id, noteOpening]);
   /**
    * Where the page last put its native window, in screen points. It's moved and sized from this, never from
    * what the window says it is: at a fractional display scale (125%, 150%) the system rounds a window to whole
@@ -253,6 +268,7 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
       // Shown once it has drawn itself where it goes: shown at once, it came up empty (its background
       // colour) and its content a frame or more later.
       void afterPaint(panel.win).then(() => {
+        noteOpening(id, false);
         if (openPanels().get(id) !== panel) return;
         const front = windows.getState().order[windows.getState().order.length - 1] === id;
         if (front) noteWindowRaised();
@@ -687,19 +703,41 @@ export function Desktop<Id extends string>({ windows, name, label, overlay, nati
   const ref = useRef<HTMLDivElement>(null);
   const isNative = NATIVE_WINDOWS && !!native && desktopPanels() !== undefined;
   const tracker = useMemo(() => createDeskTracker(ref), []);
+  const [opening, setOpening] = useState<ReadonlySet<string>>(NO_OPENING);
+  const noteOpening = useMemo(
+    () => (id: string, on: boolean) => setOpening((was) => (was.has(id) === on ? was : on ? new Set(was).add(id) : new Set([...was].filter((each) => each !== id)))),
+    [],
+  );
   // Windows made ahead, while idle: the first one opened shows as fast as the next.
   useEffect(() => (isNative ? prewarmPanelWindows() : undefined), [isNative]);
   return (
     // Its windows are given ids of its own kind (the owner's typed wrapper, as `MusicWindow`, sees to that).
     <WindowsContext.Provider value={windows as unknown as WindowsStore}>
       <NativeDeskContext.Provider value={isNative ? tracker : null}>
-        {/* Nothing on it is text to copy: a drag or a double-click never selects the names on buttons. */}
-        <div ref={ref} className={cn("isolate overflow-hidden select-none", overlay && "pointer-events-none [&>[data-window]]:pointer-events-auto", className)} data-desktop={name} aria-label={label} onDragOver={onDragOver} onDrop={onDrop}>
-          {children}
-          <SnapPreview />
-        </div>
+        <OpeningContext.Provider value={noteOpening}>
+          {/* Nothing on it is text to copy: a drag or a double-click never selects the names on buttons. */}
+          <div ref={ref} className={cn("isolate overflow-hidden select-none", overlay && "pointer-events-none [&>[data-window]]:pointer-events-auto", className)} data-desktop={name} aria-label={label} onDragOver={onDragOver} onDrop={onDrop}>
+            {children}
+            <SnapPreview />
+            {isNative && !overlay && opening.size > 0 && <DeskOpening />}
+          </div>
+        </OpeningContext.Provider>
       </NativeDeskContext.Provider>
     </WindowsContext.Provider>
+  );
+}
+
+const NO_OPENING: ReadonlySet<string> = new Set();
+
+/** Said in the middle of a native desktop while its windows are being made: it isn't empty, they're coming. */
+function DeskOpening() {
+  return (
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-center" role="status" data-testid="desk-opening">
+      <div className="flex items-center gap-2 rounded-md bg-surface-2/90 px-3 py-2 text-[13px] text-muted-foreground floating">
+        <PiSpinnerGap className="size-4 animate-spin" aria-hidden />
+        Opening windows…
+      </div>
+    </div>
   );
 }
 

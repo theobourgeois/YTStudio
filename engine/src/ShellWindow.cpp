@@ -122,9 +122,20 @@ ShellWindow::ShellWindow (const juce::String& urlToShow, Engine& engineToUse, co
     const auto area = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea;
     centreWithSize (juce::jmin (1600, area.getWidth() * 9 / 10), juce::jmin (1000, area.getHeight() * 9 / 10));
     // Where it was last time (a screen since unplugged: JUCE keeps it on one that's there).
-    if (const auto place = placeFile().loadFileAsString(); place.isNotEmpty())
+    auto place = placeFile().loadFileAsString().trim();
+   #if JUCE_WINDOWS
+    // Maximised the first time, as FL opens, and again if it was when it closed ("fs ", which is set once it shows).
+    const auto maximised = place.isEmpty() || place.startsWith ("fs ");
+    if (place.startsWith ("fs "))
+        place = place.substring (3);
+   #endif
+    if (place.isNotEmpty())
         restoreWindowStateFromString (place);
     setVisible (true);
+   #if JUCE_WINDOWS
+    if (maximised)
+        setFullScreen (true);
+   #endif
     juce::Process::makeForegroundProcess();
     toFront (true);
    #if ! JUCE_WINDOWS
@@ -156,8 +167,13 @@ ShellWindow::~ShellWindow()
    #if JUCE_WINDOWS
     panels.clear();
    #endif
+   #if JUCE_WINDOWS
+    // Maximised, its place is where it goes back to, marked "fs " to open maximised again.
+    placeFile().replaceWithText (getWindowStateAsString());
+   #else
     if (! isFullScreen())
         placeFile().replaceWithText (getWindowStateAsString());
+   #endif
     EditorWindow::setShellWindow (nullptr);
     clearContentComponent();
 }

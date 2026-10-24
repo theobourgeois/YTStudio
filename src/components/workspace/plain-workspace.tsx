@@ -4,6 +4,7 @@ import { MenuRow } from "@/components/header/menu-row";
 import { WindowButtons } from "@/components/header/window-buttons";
 import { SettingsButton } from "@/components/settings/settings-button";
 import { Button } from "@/components/ui/button";
+import { useProjects } from "@/stores/projects";
 
 /** The main column with a bare menu row (the app's own menus): for the empty state, and a suite's loading or error. */
 export function PlainWorkspace({ children }: { children: ReactNode }) {
@@ -22,10 +23,13 @@ export function PlainWorkspace({ children }: { children: ReactNode }) {
   );
 }
 
+/** A project on its way: what's opening, so an empty window never looks like an empty project. */
 export function WorkspaceLoading() {
+  const name = useProjects((s) => s.projects.find((p) => p.id === s.openId)?.name);
   return (
-    <div className="flex flex-1 items-center justify-center text-muted-foreground">
-      <PiSpinnerGap className="size-5 animate-spin" />
+    <div className="flex flex-1 items-center justify-center gap-2 text-[13px] text-muted-foreground" role="status" data-testid="workspace-loading">
+      <PiSpinnerGap className="size-5 animate-spin" aria-hidden />
+      {name ? `Opening ${name}…` : "Opening…"}
     </div>
   );
 }

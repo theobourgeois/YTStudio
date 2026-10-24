@@ -28,7 +28,7 @@ import {
   markersOf,
   selectTime,
 } from "./actions";
-import { type ClipHandle, markerAt, paintClipStarts, scrollViewBy, hitClip, xToTick, yToTrack, zoomAt, zoomToRange } from "./geometry";
+import { type ClipHandle, markerAt, paintClipStarts, scrollViewBy, hitClip, xToTick, yToTrack, zoomAt, zoomToRange, zoomTracksAt } from "./geometry";
 import { fadeOutClips } from "./fades";
 import { usePlaylist } from "./store";
 import { curveCursor, curveHoverAt, curvePointerDown, onCurvePoint } from "../automation/curve-pointer";
@@ -88,12 +88,20 @@ function startGridDrag(e: Press, element: HTMLElement, h: DragHandlers) {
   });
 }
 
+/** How far a Ctrl+middle-drag goes to make the tracks twice as tall (px). */
+const TRACK_ZOOM_PX = 120;
+
 /** The last press, to tell a double-click (pointer events don't count clicks). */
 let lastPress = { at: 0, x: 0, y: 0, target: null as EventTarget | null };
+/**
+ * How quick a double-click is (ms): quicker than the system's half second, so two clicks a moment apart
+ * (play from here, then from there) stay two clicks.
+ */
+const DOUBLE_MS = 300;
 
 function isDouble(e: Press): boolean {
   const now = performance.now();
-  const double = lastPress.target === e.currentTarget && now - lastPress.at < 500 && Math.hypot(e.clientX - lastPress.x, e.clientY - lastPress.y) < 6;
+  const double = lastPress.target === e.currentTarget && now - lastPress.at < DOUBLE_MS && Math.hypot(e.clientX - lastPress.x, e.clientY - lastPress.y) < 6;
   lastPress = double ? { at: 0, x: 0, y: 0, target: null } : { at: now, x: e.clientX, y: e.clientY, target: e.currentTarget };
   return double;
 }
@@ -185,6 +193,20 @@ export function gridPointerDown(e: Press) {
   // The middle button pans, whatever the tool; so does Shift+right-drag (FL's), but on an automation
   // clip's curve, where Shift+right-click adds a point on its line.
   const shiftPan = e.button === 2 && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && hit?.clip.kind !== "automation";
+  // Ctrl+middle-drag zooms the tracks' height instead (FL's): down makes them taller, up shorter, about the press.
+  if (e.button === 1 && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    startPointerDrag(e, {
+      button: 1,
+      threshold: 0,
+      cursor: "ns-resize",
+      onMove(ev) {
+        const dy = local(element, ev).y - q0.y;
+        usePlaylist.getState().setView(zoomTracksAt(view, q0.y, view.trackHeight * 2 ** (dy / TRACK_ZOOM_PX)));
+      },
+    });
+    return;
+  }
   if (e.button === 1 || shiftPan) {
     e.preventDefault();
     show(element, MOVING_CURSOR);
@@ -563,15 +585,16 @@ export function trackSliceHover(element: Element, ev: { clientX: number; clientY
 
 /**
  * The ruler: a click (or a drag) sets where the song plays from, and while it plays it goes there at once
- * (song mode). Ctrl+drag, or a double-click and drag, selects a range of time (which song mode loops); a
- * double-click without dragging, or a right-click, clears it.
+ * (song mode). Ctrl+drag, or a double-click and drag, selects a range of time (which song mode loops) and the
+ * clips in it; a double-click without dragging, or a right-click, clears both.
  */
 export function rulerPointerDown(e: Press) {
   const p = playlistContext();
   if (!p) return;
   const element = e.currentTarget;
   const { view } = usePlaylist.getState();
-  const tickAt = (ev: { clientX: number; clientY: number; altKey: boolean }) => snapTick(xToTick(view, local(element, ev).x), ev.altKey ? 1 : p.grid, "line");
+  // (Never before the song's start: the pointer can go past the ruler's left end.)
+  const tickAt = (ev: { clientX: number; clientY: number; altKey: boolean }) => Math.max(0, snapTick(xToTick(view, local(element, ev).x), ev.altKey ? 1 : p.grid, "line"));
   // A time marker (in the band along the ruler's bottom): dragged along it, clicked to play from it, its
   // menu on a right-click, renamed with a double-click.
   const q = local(element, e);
@@ -591,28 +614,34 @@ export function rulerPointerDown(e: Press) {
     });
     return;
   }
-  if (e.button === 2) {
-    usePlaylist.setState({ time: null });
-    return;
-  }
+  // Cleared, the clips it selected go with it.
+  if (e.button === 2) return deselect();
   if (e.button !== 0) return;
   const start = tickAt(e);
   if (isDouble(e) || e.ctrlKey || e.metaKey) {
     const double = !(e.ctrlKey || e.metaKey);
-    startPointerDrag(e, { threshold: 2, onMove: (ev) => selectTime(start, tickAt(ev)), onClick: () => double && usePlaylist.setState({ time: null }) });
+    startPointerDrag(e, { threshold: 2, onMove: (ev) => selectTime(start, tickAt(ev)), onClick: () => double && deselect() });
     return;
   }
   useTransport.getState().jumpSongTo(start);
+  // Dragged: the start follows; a playing song goes along, but not more often than it can be heard, and
+  // never again to where it went last (held past the ruler's start, every move started the song over at 0).
   let last = performance.now();
+  let jumped = start;
   startPointerDrag(e, {
     threshold: 2,
     onMove(ev) {
-      const now = performance.now();
+      const tick = tickAt(ev);
       const transport = useTransport.getState();
-      if (transport.playing && now - last < 60) return transport.setSongStartTick(tickAt(ev));
+      const now = performance.now();
+      if (tick === jumped || (transport.playing && now - last < 60)) return transport.setSongStartTick(tick);
       last = now;
-      transport.jumpSongTo(tickAt(ev));
+      jumped = tick;
+      transport.jumpSongTo(tick);
     },
-    onEnd: () => useTransport.getState().jumpSongTo(useTransport.getState().songStartTick),
+    onEnd() {
+      const transport = useTransport.getState();
+      if (transport.songStartTick !== jumped) transport.jumpSongTo(transport.songStartTick);
+    },
   });
 }

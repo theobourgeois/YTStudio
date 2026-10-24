@@ -1,11 +1,15 @@
 import { create } from "zustand";
 import { errorMessage } from "@shared/errors";
-import { type SerumPresetEntry, type SerumSound, SERUM_MACRO_PARAMS, isUserSerumPreset, randomSerumPreset, stepSerumPreset } from "@shared/music/serum-presets";
+import { type SerumPresetEntry, type SerumSound, SERUM_MACRO_PARAMS, isSerum2, isUserSerumPreset, randomSerumPreset, stepSerumPreset } from "@shared/music/serum-presets";
 import { fxParam, fxStored, SERUM_EFFECTS, type SerumChainEntry, type SerumFxRackId } from "@shared/music/serum-effects";
 import { type SerumSolo, type SerumSoundEdit, soloOscillator, withControl } from "@shared/music/serum-sound";
 import { musicApi } from "../api";
+import { useMusicPreferences } from "../preferences";
 import { useMusic } from "../store";
 import { serumWindow, useMusicWindows } from "../ui";
+
+/** Whether a channel's plugin opens in the Serum player: Serum 2's, unless Settings › Music turned the player off. */
+export const opensSerumPlayer = (plugin: { name: string } | null | undefined, on = useMusicPreferences.getState().serumPlayer) => on && isSerum2(plugin);
 
 /** One Serum channel's player: what its Serum has on, and what's being done to it. */
 export interface SerumChannel {
