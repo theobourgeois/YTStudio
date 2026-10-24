@@ -3,7 +3,7 @@ import { takeModulatorLevels } from "./modulation/store";
 import { errorMessage } from "@shared/errors";
 import type { EngineKey, EngineStatus } from "@shared/music/engine";
 import { musicApi } from "./api";
-import { withChopPreview, withDragPreview, withQuantizePreview } from "./piano/actions";
+import { stepEditPlayed, withChopPreview, withDragPreview, withQuantizePreview } from "./piano/actions";
 import { type PianoDrag, usePiano } from "./piano/store";
 import { activeDraft, withDraftPattern } from "./patterns";
 import { useMusicPreferences } from "./preferences";
@@ -179,6 +179,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       // Played on a MIDI keyboard (or the typing keyboard): lit, and kept while recording.
       useMidi.getState().played(event.notes);
       useRecording.getState().notesPlayed(event.notes);
+      // Step edit: written at the Piano roll's cursor (when it's on and the song is stopped).
+      stepEditPlayed(event.notes);
     } else if (event.event === "preset") {
       // A plugin's preset changed (its window's arrows): what shows its presets asks again.
       presetsChanged(event.id);

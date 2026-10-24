@@ -182,6 +182,11 @@ export function gridPointerDown(e: Press) {
   const tick0 = xToTick(view, q0.x);
   const track0 = Math.min(yToTrack(p.layout, view, q0.y), lastTrack(p));
   const gridOf = (ev: { altKey: boolean }) => (ev.altKey ? 1 : p.grid);
+  // The keyboard's cursor, when shown, goes where the mouse presses: the two work together.
+  if (e.button === 0 && playlist.cursor) {
+    const step = p.grid <= 1 ? p.barTicks : p.grid;
+    usePlaylist.setState({ cursor: { tick: Math.max(0, Math.floor(tick0 / step) * step), track: track0 } });
+  }
   const at = (ev: PointerEvent) => {
     const q = local(element, ev);
     const now = usePlaylist.getState().view;

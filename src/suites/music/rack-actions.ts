@@ -13,6 +13,7 @@ import {
   rotateSteps,
   setChannelNotes,
   setMuted,
+  setSteps,
   soloChannel,
   transposeChannels,
   updateChannel,
@@ -22,7 +23,8 @@ import { createId } from "@shared/ids";
 import { errorMessage } from "@shared/errors";
 import { toast } from "sonner";
 import { musicApi } from "./api";
-import type { MusicProject, PluginRef } from "@shared/music/types";
+import { type MusicProject, type PluginRef, STEP_TICKS } from "@shared/music/types";
+import { queryAnywhere } from "@/lib/window-events";
 import { usePiano } from "./piano/store";
 import { currentPattern, useMusic } from "./store";
 import { showPluginWhenLoaded } from "./transport";
@@ -164,3 +166,36 @@ export const transposeSelected = (semitones: number) => commit((doc) => transpos
 
 /** Give each selected channel a free mixer track of its own, named after it (FL's Ctrl+L in the rack). */
 export const assignFreeTracks = () => commit((doc) => routeToFreeTracks(doc, selectedIds()));
+
+/**
+ * The rack's step cursor (`rackCursor`): ← / → walk the first selected channel's steps (the first channel
+ * is selected, if none is), Home / End go to the first and last shown.
+ */
+export function moveStepCursor(to: { by: -1 | 1 } | { edge: "start" | "end" }) {
+  const doc = song();
+  if (!doc?.channels.length) return;
+  const ui = useMusicUi.getState();
+  if (!target()) ui.setSelection([doc.channels[0].id]);
+  const last = shownSteps(doc, useMusic.getState().patternId, ui.rackSteps) - 1;
+  const from = ui.rackCursor;
+  const step = "edge" in to ? (to.edge === "start" ? 0 : last) : from === null ? 0 : Math.max(0, Math.min(last, from + to.by));
+  useMusicUi.setState({ rackCursor: step });
+  // Kept in sight, the rack scrolled sideways if it must.
+  requestAnimationFrame(() => queryAnywhere(`[data-cursor-step]`)?.scrollIntoView({ block: "nearest", inline: "nearest" }));
+}
+
+/** Enter: the step under the rack's cursor on, or off if it's on (the cursor shown first, if it wasn't). */
+export function toggleStepAtCursor() {
+  const doc = song();
+  const step = useMusicUi.getState().rackCursor;
+  if (!doc || step === null || !target()) return moveStepCursor({ edge: "start" });
+  const channelId = target()!;
+  const on = (currentPattern(doc, useMusic.getState().patternId).notes[channelId] ?? []).some((n) => n.start === step * STEP_TICKS);
+  commit((d) => setSteps(d, patternId(), channelId, [step], !on));
+}
+
+/** Shift+Enter: the selected channel's window, as a click on its button opens it. */
+export function openTargetChannel() {
+  const id = target();
+  if (id) queryAnywhere<HTMLButtonElement>(`[data-channel-button="${id}"]`)?.click();
+}

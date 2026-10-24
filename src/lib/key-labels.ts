@@ -13,7 +13,7 @@ const MODIFIERS: Record<string, string> = { "⌃": "Ctrl", "⌘": "Ctrl", "⌥":
 const ORDER = ["Ctrl", "Alt", "Shift"];
 const KEYS: Record<string, string> = { "⌫": "Del", "⌦": "Del", "↵": "Enter", "⏎": "Enter", "⎋": "Esc" };
 /** What joins a modifier with "+": a key ("⇧⌘L", "⌥⌫", "⌘,") or a word ("⌘click"); not punctuation ("⌘: copy", "⌥-click"). */
-const JOINS = /[\p{L}\p{N}←→↑↓⌫⌦↵⏎⎋,.[\]]/u;
+const JOINS = /[\p{L}\p{N}←→↑↓⌫⌦↵⏎⎋,.`[\]]/u;
 
 /** `text` with its Mac key glyphs named as on Windows (`mac` false), or as it is on a Mac. */
 export function keyLabel(text: string, mac = IS_MAC): string {

@@ -19,6 +19,7 @@ import { IS_MAC } from "@/lib/key-labels";
 import { useBrowser } from "./browser/store";
 import type { MusicKeyAction } from "./keys";
 import { useMidi } from "./midi";
+import { usePiano } from "./piano/store";
 import { useMusicPreferences } from "./preferences";
 import { useRecording } from "./recording";
 import { useSongExport } from "./export/store";
@@ -56,6 +57,7 @@ export function MusicMenus({ run, edit }: { run: (action: MusicKeyAction) => voi
   const metronome = useTransport((s) => s.metronome);
   const recording = useRecording((s) => s.on);
   const typing = useMidi((s) => s.typing);
+  const stepEdit = usePiano((s) => s.stepEdit);
   const ui = useMusicUi(
     useShallow((s) => ({
       playlistOpen: s.playlistOpen,
@@ -111,6 +113,10 @@ export function MusicMenus({ run, edit }: { run: (action: MusicKeyAction) => voi
       }
       view={
         <>
+          <DropdownMenuItem onSelect={() => run({ type: "palette" })}>
+            Command Palette… <DropdownMenuShortcut>{key("⇧⌘P", "Ctrl+Shift+P")}</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuRadioGroup value={mode} onValueChange={(next) => next !== mode && run({ type: "toggleMode" })}>
             <DropdownMenuRadioItem value="pattern">
               Pattern Mode <DropdownMenuShortcut>L</DropdownMenuShortcut>
@@ -158,6 +164,9 @@ export function MusicMenus({ run, edit }: { run: (action: MusicKeyAction) => voi
               <DropdownMenuCheckboxItem checked={recording} onCheckedChange={() => run({ type: "toggleRecord" })}>
                 Record
               </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem checked={stepEdit} onCheckedChange={() => run({ type: "toggleStepEdit" })}>
+                Step Edit <DropdownMenuShortcut>{key("⌘E", "Ctrl+E")}</DropdownMenuShortcut>
+              </DropdownMenuCheckboxItem>
               <DropdownMenuItem onSelect={() => run({ type: "assignFreeTracks" })}>Assign Free Mixer Tracks</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -192,6 +201,13 @@ export function MusicMenus({ run, edit }: { run: (action: MusicKeyAction) => voi
           <DropdownMenuCheckboxItem checked={ui.graphOpen} onCheckedChange={() => run({ type: "toggleGraph" })}>
             Graph Editor
           </DropdownMenuCheckboxItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => run({ type: "cycleWindow", direction: 1 })}>
+            Next Window <DropdownMenuShortcut>{key("⌥`", "Alt+`")}</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => run({ type: "cycleWindow", direction: -1 })}>
+            Previous Window <DropdownMenuShortcut>{key("⇧⌥`", "Alt+Shift+`")}</DropdownMenuShortcut>
+          </DropdownMenuItem>
         </>
       }
     />

@@ -29,4 +29,13 @@ describe("the mixer's keys", () => {
     expect(key("KeyS", { metaKey: true })).toBeNull();
     expect(key("KeyQ")).toBeNull();
   });
+
+  it("nudge the faders with ↑ / ↓, mute with M and go to a track by its number", () => {
+    expect(key("ArrowUp", {}, "ArrowUp")).toEqual({ type: "volume", direction: 1, fine: false });
+    expect(key("ArrowDown", { ctrlKey: true }, "ArrowDown")).toEqual({ type: "volume", direction: -1, fine: true });
+    expect(key("KeyM")).toEqual({ type: "mute" });
+    expect(key("Digit7", {}, "7")).toEqual({ type: "digit", digit: 7 });
+    expect(key("Numpad0", {}, "0")).toEqual({ type: "digit", digit: 0 });
+    expect(key("Digit7", { altKey: true }, "7")).toBeNull();
+  });
 });

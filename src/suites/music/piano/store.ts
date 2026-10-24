@@ -4,6 +4,7 @@ import type { SongScale, StampId } from "@shared/music/scales";
 import type { Note } from "@shared/music/types";
 import { useMusic } from "../store";
 import { selectInRack } from "../ui";
+import type { PianoCursor } from "./cursor";
 import type { PianoView, Snap } from "./geometry";
 
 export const PIANO_TOOLS = ["draw", "paint", "delete", "mute", "slice", "select", "zoom", "playback"] as const;
@@ -113,6 +114,13 @@ interface PianoState {
   heldKey: number | null;
   /** Where the slice tool would cut if pressed now (the pointer over the grid, no button down, Shift held: the whole column). */
   sliceHover: { tick: number; pitch: number } | null;
+  /**
+   * The keyboard's cursor (`cursor.ts`): where Enter puts a note and step edit writes what's played. Null
+   * (not drawn) until the keyboard moves it or step edit is turned on.
+   */
+  cursor: PianoCursor | null;
+  /** Step edit (Ctrl+E, FL's): the notes played on a MIDI keyboard or the typing keyboard are written at the cursor. */
+  stepEdit: boolean;
 
   setChannel: (channelId: string | null) => void;
   setTool: (tool: PianoTool) => void;
@@ -154,6 +162,8 @@ const INITIAL = {
   zoomBack: null as PianoView | null,
   heldKey: null,
   sliceHover: null as { tick: number; pitch: number } | null,
+  cursor: null as PianoCursor | null,
+  stepEdit: false,
 };
 
 export const usePiano = create<PianoState>((set, get) => ({

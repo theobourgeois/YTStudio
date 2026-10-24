@@ -8,6 +8,10 @@ import { DEFAULT_CHOP_PATTERN, chopPattern, chopPieces, chopToPattern } from "@s
 import { lengthOf } from "@shared/music/edits";
 import {
   type Created,
+  HIGHEST_PITCH,
+  LOWEST_PITCH,
+  type NewNote,
+  addNotes,
   chopNotes,
   copyNotes,
   discardLengths,
@@ -23,9 +27,13 @@ import {
   quantizeNotes,
   quantizeWith,
   removeNotes,
+  resizeNotes,
   rotateNotes,
   setNoteProps,
+  setNoteValues,
 } from "@shared/music/notes";
+import type { MidiPlayed } from "@shared/music/engine";
+import { snapToScale, stampPitches } from "@shared/music/scales";
 import { stepsPerBar } from "@shared/music/project";
 import { type Channel, type MusicProject, type Note, PPQ, type Pattern, STEP_TICKS } from "@shared/music/types";
 import { currentPattern, useMusic } from "../store";
@@ -33,6 +41,7 @@ import { patternPositionNow } from "../playhead";
 import { useTransport } from "../transport";
 import { selectedIn, useMusicUi, useMusicWindows } from "../ui";
 import { applyDrag, rectSelection } from "./drag";
+import { type PianoCursor, cursorAlong, cursorUpDown, noteAtCursor, noteBeside, startingCursor, viewShowing } from "./cursor";
 import { fadeOut } from "./fades";
 import { MAX_PX_PER_TICK, MIN_PX_PER_TICK, snapTicks, zoomAt, zoomToRange } from "./geometry";
 import { type ChopperSettings, type PianoTool, type QuantizerSettings, usePiano } from "./store";
@@ -195,7 +204,15 @@ export function shiftTime(direction: -1 | 1) {
 
 export function deleteSelected() {
   const ctx = pianoContext();
-  if (!ctx?.selected.size) return;
+  if (!ctx) return;
+  // Nothing selected, the keyboard's cursor on a note: that note.
+  const { cursor } = usePiano.getState();
+  const under = !ctx.selected.size && cursor ? noteAtCursor(ctx.notes, cursor) : null;
+  if (under) {
+    fadeOut([under], new Set([under.id]));
+    return edit(ctx, (notes) => removeNotes(notes, new Set([under.id])));
+  }
+  if (!ctx.selected.size) return;
   fadeOut(ctx.notes.filter((n) => ctx.selected.has(n.id)), ctx.selected);
   edit(ctx, (notes) => removeNotes(notes, ctx.selected));
   usePiano.getState().select([]);
@@ -237,7 +254,15 @@ export function duplicate() {
 /** Shift+arrows: a snap unit left or right, a semitone up or down. Alt+arrows: a tick. Ctrl+↑/↓: an octave. */
 export function nudge(ticks: number, semitones: number) {
   const ctx = pianoContext();
-  if (ctx) edit(ctx, (notes) => moveNotes(notes, orAll(notes, ctx.selected), ticks, semitones));
+  if (!ctx) return;
+  const { cursor } = usePiano.getState();
+  const carried = cursor && noteAtCursor(ctx.notes, cursor);
+  edit(ctx, (notes) => moveNotes(notes, orAll(notes, ctx.selected), ticks, semitones));
+  // The cursor on a note that moved goes with it, as a text editor's caret stays in the word it's in.
+  const moved = carried && pianoContext()?.notes.find((n) => n.id === carried.id);
+  if (cursor && carried && moved && (moved.start !== carried.start || moved.pitch !== carried.pitch)) {
+    placeCursor({ tick: cursor.tick + moved.start - carried.start, pitch: moved.pitch });
+  }
 }
 export const nudgeBySnap = (direction: -1 | 1) => {
   const ctx = pianoContext();
@@ -414,3 +439,207 @@ export function centreOnPlayhead() {
 export const toggleLane = () => usePiano.setState({ laneHeight: usePiano.getState().laneHeight ? 0 : usePiano.getState().laneSize });
 export const toggleGhosts = () => usePiano.setState({ ghosts: !usePiano.getState().ghosts });
 export const nextLane = () => usePiano.setState({ lane: usePiano.getState().lane === "velocity" ? "pan" : "velocity" });
+
+// ---------------------------------------------------------------------------
+// The keyboard's cursor (`cursor.ts`) and step edit
+// ---------------------------------------------------------------------------
+
+/** The cursor's grid: the snap's, or a step with no snap (a tick at a time would take for ever). */
+const cursorGrid = (ctx: PianoContext) => (ctx.grid <= 1 ? STEP_TICKS : ctx.grid);
+
+/** How far right the cursor goes: well past the last note, never off the end of time. */
+const lastCursorTick = (ctx: PianoContext) => Math.max(ctx.patternTicks, noteBounds(ctx.notes)?.end ?? 0) + ctx.barTicks * 64;
+
+/** The cursor now, or where it starts (the first selected note, else the view's left edge) if it isn't shown. */
+function cursorNow(ctx: PianoContext): PianoCursor {
+  const piano = usePiano.getState();
+  return piano.cursor ?? startingCursor(piano.view, ctx.notes, ctx.selected, cursorGrid(ctx), piano.gridHeight);
+}
+
+/** Put the cursor somewhere, the view scrolled to keep it in sight. */
+export function placeCursor(cursor: PianoCursor) {
+  const ctx = pianoContext();
+  const piano = usePiano.getState();
+  const view = ctx ? viewShowing(piano.view, cursor, cursorGrid(ctx), piano.gridWidth, piano.gridHeight) : piano.view;
+  usePiano.setState({ cursor, view });
+}
+
+/** A short sound of pitches on the channel, as a click on the keyboard makes: the cursor's row, heard. */
+function sound(ctx: PianoContext, pitches: readonly number[], velocity?: number) {
+  const transport = useTransport.getState();
+  for (const pitch of pitches) transport.preview(ctx.channel.id, pitch, true, velocity);
+  window.setTimeout(() => {
+    for (const pitch of pitches) useTransport.getState().preview(ctx.channel.id, pitch, false);
+  }, 180);
+}
+
+/** ← → ↑ ↓ (Ctrl+Shift+↑ ↓: an octave): the cursor moved (the first press only shows it). A new pitch is heard. */
+export function moveCursor(move: "along" | "pitch" | "octave", steps: -1 | 1) {
+  const ctx = pianoContext();
+  if (!ctx) return;
+  const from = cursorNow(ctx);
+  if (!usePiano.getState().cursor) return placeCursor(from);
+  const to =
+    move === "along" ? cursorAlong(from, steps, cursorGrid(ctx))
+    : move === "octave" ? { ...from, pitch: clamp(from.pitch + steps * 12, LOWEST_PITCH, HIGHEST_PITCH) }
+    : cursorUpDown(from, steps, ctx.song.settings.scale);
+  placeCursor(to);
+  if (to.pitch !== from.pitch) sound(ctx, [to.pitch]);
+}
+
+/** Home / End: the cursor to the pattern's start, or its last cell. */
+export function cursorToEdge(edge: "start" | "end") {
+  const ctx = pianoContext();
+  if (!ctx) return;
+  const grid = cursorGrid(ctx);
+  const end = Math.max(ctx.patternTicks, noteBounds(ctx.notes)?.end ?? 0);
+  placeCursor({ ...cursorNow(ctx), tick: edge === "start" ? 0 : Math.max(0, Math.ceil(end / grid) * grid - grid) });
+}
+
+/** The pitches a note put at `pitch` makes, as Draw's click: the Stamp's chord, else the one note (on the scale, with one). */
+function pitchesAt(ctx: PianoContext, pitch: number): number[] {
+  const { stamp } = usePiano.getState();
+  const scale = ctx.song.settings.scale;
+  if (stamp) return stampPitches(stamp, pitch, scale);
+  return [scale ? snapToScale(scale, pitch) : pitch];
+}
+
+/**
+ * Enter: a note at the cursor (the Stamp's chord, if one is chosen) as long as the last drawn, heard and
+ * selected; then (`advance`) the cursor past it, so a melody is typed one Enter after another.
+ */
+export function placeAtCursor(advance: boolean) {
+  const ctx = pianoContext();
+  if (!ctx) return;
+  const { cursor, noteLength } = usePiano.getState();
+  if (!cursor) return placeCursor(cursorNow(ctx));
+  const pitches = pitchesAt(ctx, cursor.pitch);
+  editCreating(ctx, (notes) => addNotes(notes, pitches.map((pitch): NewNote => ({ start: cursor.tick, length: noteLength, pitch }))));
+  sound(ctx, pitches);
+  if (advance) placeCursor({ ...cursor, tick: Math.min(cursor.tick + noteLength, lastCursorTick(ctx)) });
+}
+
+/** Tab / Shift+Tab: the cursor to the next (previous) note in score order, it alone selected and heard. */
+export function cursorToNote(direction: -1 | 1) {
+  const ctx = pianoContext();
+  if (!ctx) return;
+  const note = noteBeside(ctx.notes, cursorNow(ctx), direction);
+  if (!note) return;
+  placeCursor({ tick: note.start, pitch: note.pitch });
+  usePiano.getState().select([note.id]);
+  sound(ctx, [note.pitch], note.velocity);
+}
+
+/** X: the note under the cursor into the selection, or out of it. */
+export function toggleAtCursor() {
+  const ctx = pianoContext();
+  const { cursor } = usePiano.getState();
+  const note = ctx && cursor ? noteAtCursor(ctx.notes, cursor) : null;
+  if (!ctx || !note) return;
+  const selected = new Set(ctx.selected);
+  if (selected.has(note.id)) selected.delete(note.id);
+  else selected.add(note.id);
+  usePiano.getState().select(selected);
+}
+
+/** Shift+X: every note on the cursor's row selected. */
+export function selectRowAtCursor() {
+  const ctx = pianoContext();
+  const { cursor } = usePiano.getState();
+  if (ctx && cursor) usePiano.getState().select(ctx.notes.filter((n) => n.pitch === cursor.pitch).map((n) => n.id));
+}
+
+/** I / O: the time selection's start (or end) at the cursor, the other end kept if it still makes a range. */
+export function markAtCursor(end: "in" | "out") {
+  const ctx = pianoContext();
+  const { cursor, time } = usePiano.getState();
+  if (!ctx || !cursor) return;
+  const grid = cursorGrid(ctx);
+  if (end === "in") selectTime(cursor.tick, time && time.end > cursor.tick ? time.end : cursor.tick + grid);
+  else selectTime(time && time.start < cursor.tick + grid ? time.start : cursor.tick, cursor.tick + grid);
+}
+
+/** The notes the keyboard's edits act on: the selected ones, else the one under the cursor. */
+function keyboardTargets(ctx: PianoContext): Set<number> {
+  if (ctx.selected.size) return ctx.selected;
+  const { cursor } = usePiano.getState();
+  const note = cursor ? noteAtCursor(ctx.notes, cursor) : null;
+  return new Set(note ? [note.id] : []);
+}
+
+/** Alt+Shift+← →: the notes shorter or longer by the grid (never shorter than it); the next note drawn as long. */
+export function changeLength(direction: -1 | 1) {
+  const ctx = pianoContext();
+  if (!ctx) return;
+  const ids = keyboardTargets(ctx);
+  if (!ids.size) return;
+  const grid = cursorGrid(ctx);
+  edit(ctx, (notes) => resizeNotes(notes, ids, direction * grid, grid));
+  const first = pianoContext()?.notes.find((n) => ids.has(n.id));
+  if (first) usePiano.setState({ noteLength: first.length });
+}
+
+/** Alt+Shift+↑ ↓: the notes louder or softer by 5%, the first heard as it now is. */
+export function changeVelocity(direction: -1 | 1) {
+  const ctx = pianoContext();
+  if (!ctx) return;
+  const ids = keyboardTargets(ctx);
+  if (!ids.size) return;
+  const chosen = ctx.notes.filter((n) => ids.has(n.id));
+  const values = new Map(chosen.map((n) => [n.id, { velocity: clamp(Math.round((n.velocity + direction * 0.05) * 100) / 100, 0, 1) }]));
+  edit(ctx, (notes) => setNoteValues(notes, values));
+  sound(ctx, [chosen[0].pitch], values.get(chosen[0].id)!.velocity);
+}
+
+/** F2: the properties of the first selected note, else of the one under the cursor. */
+export function openNoteProperties() {
+  const ctx = pianoContext();
+  if (!ctx) return;
+  const [id] = keyboardTargets(ctx);
+  if (id !== undefined) usePiano.setState({ editing: id });
+}
+
+/** The keys step edit has heard go down and not yet up: a chord's notes all go at the cursor, which moves on once they're let go. */
+const stepHeld = new Set<number>();
+let stepLength = 0;
+
+/** Ctrl+E: step edit on (the Piano roll opened, its cursor shown) or off. */
+export function toggleStepEdit() {
+  const on = !usePiano.getState().stepEdit;
+  usePiano.setState({ stepEdit: on });
+  stepHeld.clear();
+  if (!on) return;
+  if (!useMusicUi.getState().pianoOpen) openPianoRoll();
+  const ctx = pianoContext();
+  if (ctx && !usePiano.getState().cursor) placeCursor(cursorNow(ctx));
+}
+
+/**
+ * Step edit (FL's): what's played on the Piano roll's channel (a MIDI keyboard, the typing keyboard) while
+ * the song is stopped is written at the cursor, as long as the last note drawn, at the velocity played; once
+ * every key is let go the cursor moves past it. Playing, it's Record's to take.
+ */
+export function stepEditPlayed(played: readonly MidiPlayed[]) {
+  const piano = usePiano.getState();
+  if (!piano.stepEdit || useTransport.getState().playing) return;
+  const ctx = pianoContext();
+  if (!ctx) return;
+  const cursor = piano.cursor ?? cursorNow(ctx);
+  const ons = played.filter((n) => n.on && n.channel === ctx.channel.id);
+  if (ons.length) {
+    // A chord's first key: the notes it starts are as long as the last drawn; the others join them.
+    const chord = stepHeld.size > 0;
+    if (!chord) stepLength = piano.noteLength;
+    for (const n of ons) stepHeld.add(n.key);
+    const result = addNotes(ctx.notes, ons.map((n): NewNote => ({ start: cursor.tick, length: stepLength, pitch: n.key, velocity: n.velocity })));
+    edit(ctx, () => result.notes);
+    const selected = chord ? [...ctx.selected, ...result.created] : result.created;
+    usePiano.setState({ cursor: { ...cursor, pitch: ons[ons.length - 1].key }, selected: new Set(selected) });
+  }
+  const offs = played.filter((n) => !n.on && stepHeld.has(n.key));
+  for (const n of offs) stepHeld.delete(n.key);
+  if (offs.length && !stepHeld.size) {
+    const now = usePiano.getState().cursor ?? cursor;
+    placeCursor({ ...now, tick: Math.min(now.tick + stepLength, lastCursorTick(ctx)) });
+  }
+}

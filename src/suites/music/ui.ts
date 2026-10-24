@@ -118,6 +118,11 @@ interface MusicUiState {
   pluginManager: ManagerFilter | null;
   /** The channels whose settings windows are open. */
   openChannelIds: string[];
+  /**
+   * The rack's step cursor (← / → move it, Enter turns the step on or off): a step of the first selected
+   * channel, or null until the keyboard moves it.
+   */
+  rackCursor: number | null;
 
   /** Select one channel (or, already the only one selected, none); `add` toggles it among the others. */
   selectChannel: (id: string, mode?: "only" | "add") => void;
@@ -172,6 +177,7 @@ const INITIAL = {
   visualizerOpen: false,
   pluginManager: null as ManagerFilter | null,
   openChannelIds: [] as string[],
+  rackCursor: null as number | null,
 };
 
 const windows = () => useMusicWindows.getState();

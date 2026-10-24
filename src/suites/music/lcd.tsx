@@ -6,6 +6,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { Input } from "@/components/ui/input";
 import { PopoverContent } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { resolveControlKey } from "./control-keys";
 import { useWheelValue } from "./wheel";
 
 /** Pixels of drag per step of the value. */
@@ -41,6 +42,8 @@ interface LcdProps {
 export function Lcd({ value, min, max, label, text, derived, menu, typeIn, className, onBegin, onChange, onEnd, onCancel }: LcdProps) {
   const [typing, setTyping] = useState<string | null>(null);
   const typingNext = useRef(false);
+  // Typed in by typing a number on it: the field starts with that character, the caret after it.
+  const caretAtEnd = useRef(false);
   const element = useRef<HTMLDivElement>(null);
   useWheelValue(element, { value: () => value, min, max, step: () => 1, onBegin, onDrag: onChange, onEnd });
   const commitTyped = () => {
@@ -62,7 +65,7 @@ export function Lcd({ value, min, max, label, text, derived, menu, typeIn, class
               aria-valuemax={max}
               title={label}
               className={cn(
-                "flex h-6 min-w-9 cursor-ns-resize touch-none items-center justify-end rounded border bg-background px-1.5 font-mono text-xs tabular-nums outline-none select-none",
+                "flex h-6 min-w-9 cursor-ns-resize touch-none items-center justify-end rounded border bg-background px-1.5 font-mono text-xs tabular-nums outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/60",
                 derived && "text-muted-foreground",
                 className,
               )}
@@ -79,11 +82,16 @@ export function Lcd({ value, min, max, label, text, derived, menu, typeIn, class
                 });
               }}
               onKeyDown={(e) => {
-                if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                const key = resolveControlKey(e, { types: !!typeIn });
+                if (!key || key.type === "reset") return;
                 e.preventDefault();
                 e.stopPropagation();
+                if (key.type === "typeIn") {
+                  caretAtEnd.current = key.text !== undefined;
+                  return setTyping(key.text ?? typeIn!.initial);
+                }
                 onBegin();
-                onChange(clamp(value + (e.key === "ArrowUp" ? 1 : -1), min, max));
+                onChange(key.type === "edge" ? (key.edge === "min" ? min : max) : clamp(value + key.direction * { fine: 1, normal: 1, coarse: 10 }[key.size], min, max));
                 onEnd();
               }}
             >
@@ -115,14 +123,22 @@ export function Lcd({ value, min, max, label, text, derived, menu, typeIn, class
           </ContextMenuContent>
         )}
       </ContextMenu>
-      <PopoverContent className="w-36 p-2" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <PopoverContent
+        className="w-36 p-2"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        // Typed (or let go), the keyboard is back on the LCD, for the next key.
+        onCloseAutoFocus={(e) => {
+          e.preventDefault();
+          element.current?.focus();
+        }}
+      >
         <Input
           autoFocus
           aria-label={`${label}: type a value`}
           className="h-7"
           value={typing ?? ""}
           onChange={(e) => setTyping(e.target.value)}
-          onFocus={(e) => e.currentTarget.select()}
+          onFocus={(e) => (caretAtEnd.current ? e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length) : e.currentTarget.select())}
           onKeyDown={(e) => {
             if (e.key === "Enter") commitTyped();
             e.stopPropagation();

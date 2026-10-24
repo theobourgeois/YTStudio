@@ -133,6 +133,31 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   right-click is its menu. Knobs are `Knob`/`SongKnob`, number displays `Lcd`: don't hand-roll either.
 - What a menu item and its shortcut do lives once, in `rack-actions.ts`; keys are resolved in `keys.ts` (pure,
   tested) and run in `workspace.tsx`.
+- **Keyboard-first**: everything the mouse does, the keyboard does too, and the keys are learnt from where
+  they're shown (menus, tips, the palette's rows). The pieces:
+  - **The command palette** (⇧⌘P or F1; View › Command Palette): `components/command-palette/` (the platform's,
+    fuzzy ranking in `lib/fuzzy.ts`), fed by `commands.ts` (every window, tool, snap and edit, and each channel,
+    pattern and insert to go to). Each command runs what its key runs (the workspace's runners), the front
+    window's ranked first (`preferred`), the last run remembered. A new feature with a key gets a command here.
+  - **Cursors**: the Piano roll's (`piano/cursor.ts`, pure, `usePiano.cursor`) and the Playlist's
+    (`usePlaylist.cursor`) are a text editor's caret on the grid: arrows move it by the grid (↑↓ a semitone, a
+    scale's note with a scale; ⇧⌘↑↓ an octave; a track in the Playlist), Enter puts a note (the Picker's pattern)
+    there and steps past it (Alt+Enter stays), Tab goes to the next note or clip, X toggles what's under it in the
+    selection (⇧X its row or track), I/O mark the time selection, F2 its properties (the track's name); Delete
+    with nothing selected takes what's under it. Alt+Shift+←→/↑↓ change the notes' length and velocity. It's
+    hidden until the keyboard first moves it, then a click moves it too; drawn in `--brand` (`draw.ts`).
+  - **Step edit** (⌘E, the Piano roll's footprints button): notes played (MIDI or the typing keyboard) are
+    written at the cursor, a chord as one step, and the cursor moves on by the note length
+    (`stepEditPlayed`, fed by `engine-sync.ts`'s midi events). Drawn red while it's on.
+  - **The rack's step cursor** (`useMusicUi.rackCursor`, `rack-actions.ts`): ←→ along the selected channel's
+    steps, Home/End, Enter toggles the step, ⇧Enter opens the channel; ↑↓ still choose the channel.
+  - **The mixer**: ↑↓ the selected tracks' faders (Ctrl finely), M mutes, digits go to an insert (two quickly:
+    1 then 2 is insert 12).
+  - **Windows**: Alt+` brings the back window to the front with the keyboard (⇧ the other way), round them all.
+  - **Controls** (`control-keys.ts`, pure): a focused knob, fader or LCD steps with the arrows (Ctrl fine, Shift
+    or Page Up/Down coarse), Home/End its ends, Delete its default, Enter (or just typing a number) types a
+    value, and gives the focus back after. `useMusicKeys`' `controlKeeps` lets it keep those keys before any
+    window's; a button reached by Tab keeps Enter and Tab, one just clicked doesn't.
 - **The Playlist** (`docs/fl-studio/playlist.md`, F5; `src/suites/music/playlist/`): `MusicProject.playlist`
   is numbered tracks (bound to nothing; `tracks` only as long as the last one changed) and clips
   (`PlaylistClip`: a pattern, an audio clip's channel or an automation clip, `start`, `length` (null: a pattern clip following

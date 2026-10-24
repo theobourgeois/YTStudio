@@ -42,6 +42,8 @@ export interface Palette {
   /** What the Playlist's clips are mixed towards: their bodies, and what's drawn in them (`clipColours`). */
   clipBase: string;
   clipInk: string;
+  /** The theme's accent: the keyboard's cursor. */
+  brand: string;
 }
 
 /** The palette's colours that come from the theme (`--piano-<name>` in `src/themes/`), by field. */
@@ -81,6 +83,7 @@ export function readPalette(element: Element): Palette {
     foreground: style.getPropertyValue("--foreground").trim(),
     clipBase: style.getPropertyValue("--clip-base").trim() || (dark ? "#101318" : "#ffffff"),
     clipInk: style.getPropertyValue("--clip-ink").trim() || (dark ? "#ffffff" : "#1c2127"),
+    brand: style.getPropertyValue("--brand").trim() || "#2c67d0",
     note: NOTE,
     selected: SELECTED,
     muted: MUTED,
@@ -120,6 +123,11 @@ export interface Scene {
   slice: { x: number; y1: number; y2: number; full: boolean } | null;
   /** The song's scale: its notes' rows are lit (FL's scale highlighting), its root's more. */
   scale: SongScale | null;
+  /**
+   * The keyboard's cursor (`cursor.ts`), when shown: its cell, and the note Enter would put there
+   * (`length` ticks); `stepEdit` draws it as recording.
+   */
+  cursor?: { tick: number; pitch: number; length: number; stepEdit: boolean } | null;
   palette: Palette;
 }
 
@@ -335,6 +343,35 @@ export function drawGrid(ctx: CanvasRenderingContext2D, scene: Scene) {
     ctx.fillStyle = palette.tool;
     ctx.fillRect(x - 1, 0, 2, height);
   }
+  if (scene.cursor && !drag) drawCursor(ctx, scene, scene.cursor);
+}
+
+/** The step edit cursor's colour: recording's red, so it's plain that what's played is written. */
+const STEP_EDIT = "#e5484d";
+
+/**
+ * The keyboard's cursor, a text editor's caret on the grid: its row faintly lit across, a bar where it
+ * stands, and the outline of the note Enter would put there.
+ */
+function drawCursor(ctx: CanvasRenderingContext2D, scene: Scene, cursor: NonNullable<Scene["cursor"]>) {
+  const { view, width, palette } = scene;
+  const colour = cursor.stepEdit ? STEP_EDIT : palette.brand;
+  const y = Math.round(pitchToY(view, cursor.pitch));
+  const h = Math.max(3, Math.round(view.rowHeight));
+  ctx.globalAlpha = palette.dark ? 0.1 : 0.08;
+  ctx.fillStyle = colour;
+  ctx.fillRect(0, y, width, h);
+  const x = Math.round(tickToX(view, cursor.tick));
+  const w = Math.max(4, Math.round(cursor.length * view.pxPerTick));
+  ctx.globalAlpha = 0.22;
+  ctx.fillRect(x, y, w, h);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = colour;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 2]);
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  ctx.setLineDash([]);
+  ctx.fillRect(x - 1, y - 2, 2, h + 4);
 }
 
 /**
@@ -471,7 +508,7 @@ export function rulerMarks(
  * four to the seven from F to B), black keys over them. Every white key is named when the rows are
  * tall enough to read, else only the Cs. Keys `held` (by the mouse, or played on a keyboard) are lit.
  */
-export function drawKeys(ctx: CanvasRenderingContext2D, view: PianoView, width: number, height: number, palette: Palette, held: ReadonlySet<number>) {
+export function drawKeys(ctx: CanvasRenderingContext2D, view: PianoView, width: number, height: number, palette: Palette, held: ReadonlySet<number>, cursorPitch: number | null = null) {
   ctx.fillStyle = palette.keys;
   ctx.fillRect(0, 0, width, height);
   const top = yToPitch(view, 0) + 1;
@@ -528,6 +565,11 @@ export function drawKeys(ctx: CanvasRenderingContext2D, view: PianoView, width: 
   ctx.textAlign = "left";
   ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
   ctx.fillRect(width - 1, 0, 1, height);
+  // The keyboard cursor's row: a mark at the keys' edge, level with it.
+  if (cursorPitch !== null) {
+    ctx.fillStyle = palette.brand;
+    ctx.fillRect(width - 4, Math.round(pitchToY(view, cursorPitch)), 3, Math.max(3, Math.round(view.rowHeight)));
+  }
 }
 
 /** The event editor: a stem per note, from the bottom (velocity) or the middle (pan), with its length as a tail. */

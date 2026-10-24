@@ -92,6 +92,11 @@ interface PlaylistState {
   stretch: boolean;
   /** The track whose name is being typed, or null. */
   renaming: number | null;
+  /**
+   * The keyboard's cursor (`actions.ts`): a tick and a track, where Enter puts the Picker's pattern and the
+   * arrows move, as the Piano roll's. Null until the keyboard first moves it.
+   */
+  cursor: { tick: number; track: number } | null;
   /** Where the slice tool would cut every track if pressed now (Shift held over the grid). */
   sliceHover: { tick: number } | null;
   /** A clip's menu, open (its arrow was clicked): which clip, and where in the grid. */
@@ -162,6 +167,7 @@ const INITIAL = {
   pickerOpen: true,
   stretch: false,
   renaming: null as number | null,
+  cursor: null as { tick: number; track: number } | null,
   sliceHover: null as { tick: number } | null,
   clipMenu: null as { clipId: number; x: number; y: number } | null,
   recoloring: null as { source: ClipSource; x: number; y: number } | null,

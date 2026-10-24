@@ -82,6 +82,7 @@ import { TagChip } from "@/components/ui/tag-chip";
 import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { type Command, CommandPalette, useCommandPalette } from "@/components/command-palette/command-palette";
 import type { GallerySection } from "./types";
 
 /** A labelled row of examples. */
@@ -624,6 +625,29 @@ function Scrolling() {
   );
 }
 
+const PALETTE_COMMANDS: Command[] = [
+  { id: "playlist", group: "Window", title: "Playlist", keys: "F5", checked: true, run: () => {} },
+  { id: "piano", group: "Window", title: "Piano Roll", keys: "F7", run: () => {} },
+  { id: "quantize", group: "Piano Roll", title: "Quantize", keys: "⌘Q", preferred: true, run: () => {} },
+  { id: "step-edit", group: "Transport", title: "Step Edit", keys: "⌘E", checked: false, run: () => {} },
+  { id: "export", group: "File", title: "Export WAV…", keys: "⌘R", run: () => {} },
+  { id: "kick", group: "Go to Channel", title: "Kick", run: () => {} },
+  { id: "consolidate", group: "Playlist", title: "Consolidate Clips", disabled: true, run: () => {} },
+];
+const paletteCommands = () => PALETTE_COMMANDS;
+
+function Palette() {
+  return (
+    <div className="flex items-center gap-3">
+      <Button variant="outline" onClick={() => useCommandPalette.getState().setOpen(true)}>
+        Open command palette
+      </Button>
+      <span className="text-xs text-muted-foreground">⇧⌘P or F1 in the music editor</span>
+      <CommandPalette commands={paletteCommands} storageKey="gallery-command-palette" />
+    </div>
+  );
+}
+
 export const PRIMITIVE_SECTIONS: GallerySection[] = [
   { id: "surfaces", title: "Surfaces, colours and contrast", source: "src/themes/studio.css", render: () => <Surfaces /> },
   { id: "buttons", title: "Buttons", source: "components/ui/button.tsx", render: () => <Buttons /> },
@@ -654,6 +678,13 @@ export const PRIMITIVE_SECTIONS: GallerySection[] = [
       { name: "alert", click: "Open alert", page: true },
       { name: "toasts", click: "Show toasts", page: true },
     ],
+  },
+  {
+    id: "command-palette",
+    title: "Command palette",
+    source: "components/command-palette/command-palette.tsx",
+    render: () => <Palette />,
+    shots: [{ name: "open", click: "Open command palette", page: true }],
   },
   { id: "scrolling", title: "Scrolling and separators", source: "components/ui/scroll-area.tsx, separator.tsx, index.css", render: () => <Scrolling /> },
   { id: "settings", title: "Settings: groups, rows, themes", source: "components/settings/", render: () => <SettingsParts /> },

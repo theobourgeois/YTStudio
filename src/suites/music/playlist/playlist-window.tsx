@@ -61,6 +61,7 @@ import {
   sourceName,
   splitPattern,
   zoomFloor,
+  cursorClipLength,
   markersOf,
 } from "./actions";
 import { CURVE_NAMES, controlOf, deletePoint, editPoints, updatePoint } from "@shared/music/automation";
@@ -435,6 +436,7 @@ function PlaylistBody() {
               ? { tick: playlist.sliceHover.tick, top: 0, bottom: 0, all: true }
               : null,
         curveFocus: curveFocusOf(song, drag, playlist.curveHover),
+        cursor: playlist.cursor && { ...playlist.cursor, length: cursorClipLength(song) },
         palette,
       };
       const g = prepare(grid.current, width, height);

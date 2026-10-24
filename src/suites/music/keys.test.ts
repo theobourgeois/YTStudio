@@ -5,6 +5,24 @@ type Mods = Partial<Record<"metaKey" | "ctrlKey" | "shiftKey" | "altKey", boolea
 const press = (key: string, code: string, mods: Mods = {}) => resolveMusicKey({ key, code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
 
 describe("music keys", () => {
+  it("opens the palette, steps through the windows and turns step edit on, from any window", () => {
+    expect(press("P", "KeyP", { metaKey: true, shiftKey: true })).toEqual({ type: "palette" });
+    expect(press("F1", "F1")).toEqual({ type: "palette" });
+    expect(press("e", "KeyE", { ctrlKey: true })).toEqual({ type: "toggleStepEdit" });
+    expect(press("`", "Backquote", { altKey: true })).toEqual({ type: "cycleWindow", direction: 1 });
+    expect(press("~", "Backquote", { altKey: true, shiftKey: true })).toEqual({ type: "cycleWindow", direction: -1 });
+    for (const action of [press("F1", "F1"), press("e", "KeyE", { ctrlKey: true }), press("`", "Backquote", { altKey: true })]) expect(isGlobalKey(action!)).toBe(true);
+  });
+
+  it("walks the rack's steps with a cursor", () => {
+    expect(press("ArrowRight", "ArrowRight")).toEqual({ type: "stepCursor", direction: 1 });
+    expect(press("Home", "Home")).toEqual({ type: "stepCursorEdge", edge: "start" });
+    expect(press("End", "End")).toEqual({ type: "stepCursorEdge", edge: "end" });
+    expect(press("Enter", "Enter")).toEqual({ type: "toggleStep" });
+    expect(press("Enter", "Enter", { shiftKey: true })).toEqual({ type: "openChannel" });
+    expect(isGlobalKey({ type: "toggleStep" })).toBe(false);
+  });
+
   it("shows the Playlist with F5 and switches pattern and song mode with L, from any window", () => {
     expect(press("F5", "F5")).toEqual({ type: "togglePlaylist" });
     expect(press("l", "KeyL")).toEqual({ type: "toggleMode" });

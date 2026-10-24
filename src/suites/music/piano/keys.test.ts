@@ -38,7 +38,6 @@ describe("piano roll keys", () => {
     expect(press("ArrowDown", "ArrowDown", cmd)).toEqual({ type: "nudge", by: "none", direction: 0, semitones: -12 });
     expect(press("ArrowLeft", "ArrowLeft", { ...cmd, ...shift })).toEqual({ type: "rotate", direction: -1 });
     expect(press("ArrowRight", "ArrowRight", cmd)).toEqual({ type: "shiftTime", direction: 1 });
-    expect(press("ArrowRight", "ArrowRight")).toBeNull();
   });
 
   it("runs the tools' shortcuts", () => {
@@ -67,6 +66,25 @@ describe("piano roll keys", () => {
     expect(press("Enter", "Enter", shift)).toEqual({ type: "lane" });
     expect(press("f", "KeyF")).toEqual({ type: "nextLane" });
     expect(press("Escape", "Escape")).toEqual({ type: "close" });
+  });
+
+  it("moves the keyboard cursor and writes with it", () => {
+    expect(press("ArrowRight", "ArrowRight")).toEqual({ type: "cursor", move: "along", steps: 1 });
+    expect(press("ArrowUp", "ArrowUp")).toEqual({ type: "cursor", move: "pitch", steps: 1 });
+    expect(press("ArrowDown", "ArrowDown", { ...cmd, ...shift })).toEqual({ type: "cursor", move: "octave", steps: -1 });
+    expect(press("Home", "Home")).toEqual({ type: "cursorEdge", edge: "start" });
+    expect(press("End", "End")).toEqual({ type: "cursorEdge", edge: "end" });
+    expect(press("Enter", "Enter")).toEqual({ type: "place", advance: true });
+    expect(press("Enter", "Enter", alt)).toEqual({ type: "place", advance: false });
+    expect(press("Tab", "Tab")).toEqual({ type: "nextNote", direction: 1 });
+    expect(press("Tab", "Tab", shift)).toEqual({ type: "nextNote", direction: -1 });
+    expect(press("x", "KeyX")).toEqual({ type: "toggleAtCursor" });
+    expect(press("X", "KeyX", shift)).toEqual({ type: "selectRow" });
+    expect(press("i", "KeyI")).toEqual({ type: "markIn" });
+    expect(press("o", "KeyO")).toEqual({ type: "markOut" });
+    expect(press("ArrowRight", "ArrowRight", { ...alt, ...shift })).toEqual({ type: "length", direction: 1 });
+    expect(press("ArrowDown", "ArrowDown", { ...alt, ...shift })).toEqual({ type: "velocity", direction: -1 });
+    expect(press("F2", "F2")).toEqual({ type: "properties" });
   });
 
   it("leaves the rest alone", () => {

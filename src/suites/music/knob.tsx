@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { PopoverContent } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { songGesture, useMusic } from "./store";
+import { resolveControlKey } from "./control-keys";
 import { useWheelValue } from "./wheel";
 
 /** Pixels of drag for the knob's whole range (ten times that with Ctrl, for fine changes). */
@@ -100,6 +101,8 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
   const [dragging, setDragging] = useState<"above" | "below" | null>(null);
   const [typing, setTyping] = useState<string | null>(null);
   const typingNext = useRef(false);
+  // Typed in by typing a number on it: the field starts with that character, the caret after it.
+  const caretAtEnd = useRef(false);
   const element = useRef<HTMLDivElement>(null);
   const copied = useCopiedValue((s) => s.fraction);
   // Everything moves in fractions of its travel (0..1), so a log knob turns as evenly as a linear one.
@@ -144,7 +147,7 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
               title={`${label}: ${format(value)}${automated ? " (automated)" : ""}${modulatedTo !== null ? ` (modulated, to ${format(modulatedTo)})` : ""}`}
               data-automated={automated || undefined}
               data-modulated={modulatedTo !== null || undefined}
-              className={cn("relative shrink-0 cursor-ns-resize touch-none rounded-full outline-none", className)}
+              className={cn("relative shrink-0 cursor-ns-resize touch-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/60", className)}
               style={{ width: size, height: size }}
               onPointerDown={(e) => {
                 // A middle click, or Alt+click: back to its default.
@@ -183,12 +186,17 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
                 });
               }}
               onKeyDown={(e) => {
-                const step = 1 / (e.ctrlKey || e.metaKey ? 200 : 40);
-                if (e.key === "ArrowUp" || e.key === "ArrowRight") onSet(fromTravel(toTravel(own) + step));
-                else if (e.key === "ArrowDown" || e.key === "ArrowLeft") onSet(fromTravel(toTravel(own) - step));
-                else return;
+                const key = resolveControlKey(e, { horizontal: true, resets: true });
+                if (!key) return;
+                if (key.type === "step") onSet(fromTravel(toTravel(own) + key.direction / { fine: 200, normal: 40, coarse: 8 }[key.size]));
+                else if (key.type === "edge") onSet(key.edge === "min" ? min : max);
+                else if (key.type === "reset") onSet(defaultValue);
+                else {
+                  caretAtEnd.current = key.text !== undefined;
+                  setTyping(key.text ?? typed(own, unit));
+                }
                 e.preventDefault();
-                // The arrows are the knob's here, not the rack's.
+                // The keys are the knob's here, not the rack's.
                 e.stopPropagation();
               }}
             >
@@ -264,7 +272,15 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
           {menu}
         </ContextMenuContent>
       </ContextMenu>
-      <PopoverContent className="w-36 p-2" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <PopoverContent
+        className="w-36 p-2"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        // Typed (or let go), the keyboard is back on the knob, for the next key.
+        onCloseAutoFocus={(e) => {
+          e.preventDefault();
+          element.current?.focus();
+        }}
+      >
         <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Input
             autoFocus
@@ -273,7 +289,7 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
             className="h-7"
             value={typing ?? ""}
             onChange={(e) => setTyping(e.target.value)}
-            onFocus={(e) => e.currentTarget.select()}
+            onFocus={(e) => (caretAtEnd.current ? e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length) : e.currentTarget.select())}
             onKeyDown={(e) => {
               if (e.key === "Enter") commitTyped();
               e.stopPropagation();

@@ -8,7 +8,7 @@ import { clamp } from "@shared/math";
 import { DEFAULT_VELOCITY } from "@shared/music/project";
 import { type NewNote, type NotePatch, noteBounds } from "@shared/music/notes";
 import { snapToScale, stampPitches } from "@shared/music/scales";
-import type { Note } from "@shared/music/types";
+import { type Note, STEP_TICKS } from "@shared/music/types";
 import { type DragHandlers, startPointerDrag } from "@/lib/pointer-drag";
 import { useTransport } from "../transport";
 import { type PianoContext, commitDrag, cancelDrag, deselect, pianoContext, selectTime } from "./actions";
@@ -266,6 +266,11 @@ export function gridPointerDown(e: Press) {
     return { x: q.x, y: q.y, tick: xToTick(now, q.x), pitch: yToPitch(now, q.y) };
   };
   const finish = { onEnd: commitDrag, onClick: commitDrag, onCancel: cancelDrag };
+  // The keyboard's cursor, when shown, goes where the mouse presses: the two work together.
+  if (e.button === 0 && piano.cursor) {
+    const step = ctx.grid <= 1 ? STEP_TICKS : ctx.grid;
+    usePiano.setState({ cursor: { tick: Math.max(0, Math.floor(tick0 / step) * step), pitch: pitch0 } });
+  }
 
   // The middle button pans, whatever the tool; with Ctrl (⌘) it zooms the keys (Théo).
   if (e.button === 1 && (e.ctrlKey || e.metaKey)) return zoomRows(e, element);

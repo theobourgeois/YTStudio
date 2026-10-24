@@ -140,6 +140,9 @@ const PLATFORM = [
   "src/lib/focus-rings.ts",
   // Shortcut labels and words for the computer the app runs on (⌘ or Ctrl, Finder or File Explorer).
   "src/lib/key-labels.ts",
+  // The command palette (⇧⌘P) and its fuzzy ranking: a suite hands it its commands.
+  "src/lib/fuzzy.ts",
+  "src/components/command-palette/",
   "src/lib/pointer-drag.ts",
   // Generic card selection is shared by media/library grids and music's insert setup.
   "src/components/media/grid-selection.ts",
