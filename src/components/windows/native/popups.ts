@@ -5,7 +5,7 @@
  * menu's place against the control that opened it (worked out in the control's window) is its place in
  * this one; it reaches to the display's right and bottom edges.
  */
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { POPUP_WINDOW } from "@shared/panels";
 import { desktopPanels } from "@/lib/desktop";
 import { addWindowListener, allWindows, isElement, ownerWindow } from "@/lib/window-events";
@@ -227,4 +227,40 @@ export function useMainWindowPopups(enabled: boolean): HTMLElement | undefined {
     };
   }, [enabled]);
   return enabled ? container : undefined;
+}
+
+/**
+ * A dialog of the main window's (the command palette, ⌘P's search) while the editor's windows are windows of
+ * the system: drawn in the popup window too (in the page, it opened under them), laid over the main window
+ * first, in a box the main window's size that it's centred in (the popup window reaches to the display's
+ * edges). `container` is that box; `ready` is false until it's there, so the dialog isn't first drawn in the
+ * page. There the dialog isn't modal (`modal={!container}`) and its input focuses itself (`autoFocus`,
+ * `onOpenAutoFocus` prevented): Radix's focus trap looks for the focus in the main page's document, doesn't find
+ * it, and takes it back to the dialog itself on every change to the list. The box dims what's under it, as the
+ * overlay would, and a press on it closes the dialog. Elsewhere (no panels, or no popup window yet), the page:
+ * `container` undefined and `ready` true.
+ */
+export function useMainWindowDialog(open: boolean): { container: HTMLElement | undefined; ready: boolean } {
+  const popups = usePopupContainerElement();
+  const native = open && popups !== undefined && desktopPanels() !== undefined;
+  const [frame, setFrame] = useState<HTMLElement>();
+  useLayoutEffect(() => {
+    if (!native || !popups) return;
+    // Before the box goes in: the window shows as something is in it, where it was last laid (a panel, maybe).
+    alignPopups({ name: null, win: window });
+    const box = popups.ownerDocument.createElement("div");
+    box.className = "bg-black/45 dark:bg-black/55";
+    // A transform makes it what the dialog's fixed layers are placed in.
+    const fit = () => Object.assign(box.style, { position: "fixed", left: "0", top: "0", width: `${window.innerWidth}px`, height: `${window.innerHeight}px`, transform: "translateZ(0)" });
+    fit();
+    popups.append(box);
+    window.addEventListener("resize", fit);
+    setFrame(box);
+    return () => {
+      window.removeEventListener("resize", fit);
+      box.remove();
+      setFrame(undefined);
+    };
+  }, [native, popups]);
+  return native ? { container: frame, ready: frame !== undefined } : { container: undefined, ready: true };
 }

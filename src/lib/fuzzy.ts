@@ -44,7 +44,8 @@ export function fuzzyMatch(query: string, text: string): FuzzyMatch | null {
     indexes.push(found);
     from = found + 1;
   }
-  let score = 0;
+  // Typing starts at a word's start: a match that begins inside one ("p" in Snap) is a weak one.
+  let score = isBoundary(text, indexes[0]) ? 0 : -8;
   indexes.forEach((index, i) => {
     score += isBoundary(text, index) ? 12 : 1;
     if (i > 0 && index === indexes[i - 1] + 1) score += 6;
@@ -56,7 +57,7 @@ export function fuzzyMatch(query: string, text: string): FuzzyMatch | null {
 export interface Rankable {
   id: string;
   title: string;
-  /** What it's under ("Piano roll"), matched too, a little weaker than the title. */
+  /** What it's under ("Piano roll"), matched with the title, weaker than the title alone. */
   group?: string;
   /** Other words for it ("delete" for Remove...), matched as the title is but not shown. */
   keywords?: readonly string[];
@@ -80,13 +81,14 @@ export function rankItems<T extends Rankable>(items: readonly T[], query: string
   };
   const scored = items.flatMap((item, order) => {
     const title = fuzzyMatch(query, item.title);
-    // The group with the title a little weaker than the title alone, the unseen keywords weaker still: a
-    // title that matches ("pno": Piano Roll) beats a keyword whose words happen to start with the letters (play notes).
+    // The group with the title, and the unseen keywords, weaker than the title alone: a title that matches
+    // ("pno": Piano Roll) beats a keyword whose words happen to start with the letters (play notes), or letters
+    // strewn across a group and a title (Playlist: Snap to (none)).
     const weaker = (text: string | undefined, by: number) => {
       const match = text ? fuzzyMatch(query, text) : null;
       return match ? match.score - by : -Infinity;
     };
-    const best = Math.max(title?.score ?? -Infinity, weaker(item.group && `${item.group} ${item.title}`, 8), ...(item.keywords ?? []).map((k) => weaker(k, 16)));
+    const best = Math.max(title?.score ?? -Infinity, weaker(item.group && `${item.group} ${item.title}`, 16), ...(item.keywords ?? []).map((k) => weaker(k, 16)));
     if (best === -Infinity) return [];
     const bonus = recency(item.id) * (query ? 2 : 1000) + (preferred?.(item) ? (query ? 5 : 500) : 0);
     return [{ item, indexes: title?.indexes ?? [], score: best + bonus, order }];

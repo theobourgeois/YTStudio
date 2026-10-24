@@ -6,6 +6,7 @@ import { SUITES } from "@shared/suites";
 import type { ProjectSummary } from "@shared/types";
 import { cn } from "cn";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { useMainWindowDialog } from "@/components/windows/native/popups";
 import { useLayout } from "@/stores/layout";
 import { lastEdited, useProjects } from "@/stores/projects";
 import { describeProject } from "@/suites";
@@ -75,11 +76,13 @@ export function useProjectShortcuts() {
 /** ⌘P: find a project by name, in any suite, and open it (arrows + Enter, as the New project picker). */
 export function ProjectSearchDialog() {
   const open = useLayout((s) => s.projectSearchOpen);
+  // Over the music editor's windows when they're the system's.
+  const { container, ready } = useMainWindowDialog(open);
   return (
-    <Dialog open={open} onOpenChange={(next) => useLayout.getState().setProjectSearchOpen(next)}>
-      <DialogContent showCloseButton={false} className="top-[22%] translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-xl">
+    <Dialog open={open && ready} modal={!container} onOpenChange={(next) => useLayout.getState().setProjectSearchOpen(next)}>
+      <DialogContent container={container} showCloseButton={false} onOpenAutoFocus={(e) => e.preventDefault()} className="top-[22%] translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-xl">
         {/* Remounted on each open, so it starts with an empty search and the latest project. */}
-        {open && <Search />}
+        {open && ready && <Search />}
       </DialogContent>
     </Dialog>
   );
