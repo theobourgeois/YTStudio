@@ -1185,7 +1185,7 @@ export default function NowPlayingView() {
 
       {compact ? (
         <div className={cn("pointer-events-none absolute inset-0 transition-opacity duration-300", controls ? "opacity-100" : "opacity-0")}>
-          <div className="pointer-events-auto absolute top-1.5 right-1.5 flex items-center">
+          <div data-hud-top className="pointer-events-auto absolute top-1.5 right-1.5 flex items-center">
             {placeButtons}
             {fullscreenButton}
             {closeButton}
@@ -1196,7 +1196,7 @@ export default function NowPlayingView() {
         </div>
       ) : (
         <div className={cn("pointer-events-none absolute inset-0 transition-opacity duration-500", controls ? "opacity-100" : "opacity-0")}>
-          <div className="pointer-events-auto absolute top-4 right-4 flex items-center gap-1">
+          <div data-hud-top className="pointer-events-auto absolute top-4 right-4 flex items-center gap-1">
             <LooksMenu current={showing} verdictOf={(id) => taste.verdict(id, character)} onPick={pick} onShuffle={shuffle} onShuffleAny={shuffleAny} />
             <RateButtons verdict={shownVerdict} onRate={rate} />
             <Hearing />
