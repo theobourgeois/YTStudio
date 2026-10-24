@@ -448,6 +448,18 @@ html.desktop [data-window] {
   -webkit-app-region: no-drag;
 }
 
+/*
+ * The visualizer over the app (now-playing-view/view.tsx) is clicked as the page's too: a drag region counts
+ * wherever it is, even under what's drawn over it, so the bars under its top row would take its buttons' presses.
+ */
+html.desktop [data-now-playing-view] {
+  -webkit-app-region: no-drag;
+}
+/* Filling the window on Windows, its top row ends before the window's buttons (`--window-controls-width`, above). */
+html.desktop-win32:not(.fullscreen) [data-now-playing-view="full"] [data-hud-top] {
+  right: calc(var(--window-controls-width) + 8px);
+}
+
 /* Windows over the app (Settings, the video editor's) take the pointer, but not while a modal dialog or menu holds it (Radix turns the body's off). */
 body[style*="pointer-events: none"] [data-window] {
   pointer-events: none;
