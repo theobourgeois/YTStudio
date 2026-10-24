@@ -6,7 +6,7 @@
  * unrecognisable). A clip on a flat background has it taken out (`backdropOf`, measured on the clip every so often) and floats
  * at its own shape; footage fills the frame. How much and which of it (`MediaMix`: all of it, only its light, only its
  * edges) is the music's (`media-mix.ts`). A shared screen or window (`screen.ts`) goes in the same way, whole and
- * as it is: all of it shown, nothing taken out. Drawn with Butterchurn's own WebGL context, into its own buffer,
+ * as it is: all of it shown, nothing taken out, by a feed of its own (the clips come in over it now and then). Drawn with Butterchurn's own WebGL context, into its own buffer,
  * leaving its state as it was.
  */
 import type { ButterchurnRenderer } from "butterchurn";
@@ -163,13 +163,16 @@ export class MediaFeed {
   private uniforms: Record<string, WebGLUniformLocation | null> = {};
   private fed: Fed | null = null;
   private failed = false;
-  private readonly brake = new Brake();
   /** A frame of the clip, small, to see its background by. */
   private readonly small = document.createElement("canvas");
   /** Frames it has fed (for the tests). */
   frames = 0;
 
-  constructor(private readonly gl: WebGL2RenderingContext) {}
+  /** `brake`: shared by the feeds into one picture (a screen's and the clips': they pile up in it together). */
+  constructor(
+    private readonly gl: WebGL2RenderingContext,
+    private readonly brake = new Brake(),
+  ) {}
 
   /**
    * What it feeds: a clip or picture's URL (`kind`), a screen's stream, or nothing. A clip plays muted, looping, from
@@ -240,11 +243,13 @@ export class MediaFeed {
 
   /**
    * The clip into the frame Butterchurn just drew (its next frame warps it in) and on top of what it showed, as `mix`
-   * says for `hit` into a kick over `seconds`; less of both while the picture (`canvas`) is turning white or pale.
-   * Whether it did.
+   * says for `hit` into a kick over `seconds`; less of both while the picture (`canvas`: given to one feed of a picture's)
+   * is turning white or pale, and `fade` of it (0..1: a clip coming in over a screen). Whether it did.
    */
-  feed(renderer: ButterchurnRenderer, mix: MediaMix, hit: number, seconds: number, canvas?: HTMLCanvasElement): boolean {
+  feed(renderer: ButterchurnRenderer, mix: MediaMix, hit: number, seconds: number, canvas?: HTMLCanvasElement, fade = 1): boolean {
     if (canvas && this.frames % MEASURE_EVERY === 0) this.brake.measure(canvas);
+    // (Away: it keeps playing, ready to come in, but nothing's painted.)
+    if (fade <= 0) return false;
     const fed = this.fed;
     if (!fed || this.failed || !fed.width || !fed.height) return false;
     const gl = this.gl;
@@ -275,7 +280,7 @@ export class MediaFeed {
     const into = pale ? "edges" : keyed && mix.mode === "light" ? "whole" : mix.mode;
     // A screen as it is (it's read as itself: its panels, its text), the look showing through as much as it isn't.
     const onTop = fed.live ? mix.mode : pale ? "edges" : keyed ? (mix.mode === "edges" ? "edges" : "whole") : mix.mode === "whole" ? "light" : mix.mode;
-    const gain = this.brake.gain;
+    const gain = this.brake.gain * Math.max(0, Math.min(1, fade));
     const blend = gl.getParameter(gl.BLEND) as boolean;
     gl.useProgram(this.program);
     gl.bindVertexArray(this.vao);

@@ -8,14 +8,14 @@
  * frames to the next as the time between goes (`picture`). Butterchurn and the presets
  * picked (`virtual:milkdrop-presets`, only those) load the first time it's asked (`prepare`); nothing's drawn while no
  * MilkDrop look is on screen. The user's clips and pictures go into its feedback (`feed`, `media-feed.ts`): painted into
- * each frame it draws, for the next to warp.
+ * each frame it draws, for the next to warp; a screen shared goes in under them, by a feed of its own (`screenFeed`).
  */
 import type { ButterchurnAudioLevels, ButterchurnPreset, ButterchurnVisualizer } from "butterchurn";
 import { MILKDROP_PRESETS, MILKDROP_SIZE, milkdropPreset } from "@shared/live-milkdrop";
 import type { LiveSignals } from "@shared/signals/live";
 import { errorMessage } from "@shared/errors";
 import { log } from "@/lib/log";
-import { type FedMedia, MediaFeed } from "./media-feed";
+import { Brake, type FedMedia, MediaFeed } from "./media-feed";
 import type { MediaMix } from "./media-mix";
 
 const logger = log("now-playing");
@@ -34,11 +34,15 @@ function exportsOf<T>(mod: unknown, has: string): T {
 /** What's on screen, oldest first (`LiveDirector.shownAt`). */
 export type Shown = readonly { look: string; from: number; full: number }[];
 
-/** The clip or picture going into its feedback, how, and how far into a kick the music is (0..1). */
+/**
+ * The clip, picture or screen going into its feedback, how, how far into a kick the music is (0..1), and how much of
+ * it (`fade`, 0..1: a clip coming in over a screen; all of it if not given).
+ */
 export interface Feeding {
   media: FedMedia;
   mix: MediaMix;
   hit: number;
+  fade?: number;
 }
 
 export class MilkDrop {
@@ -69,6 +73,9 @@ export class MilkDrop {
   /** The user's clips and pictures, painted into its feedback. */
   private feed: MediaFeed | null = null;
   private feeding: Feeding | null = null;
+  /** A screen or window shared (`screen.ts`), under the clips. */
+  private screenFeed: MediaFeed | null = null;
+  private screen: Feeding | null = null;
 
   constructor() {
     this.canvas = document.createElement("canvas");
@@ -111,7 +118,10 @@ export class MilkDrop {
     if (missing.length) logger.warn(`MilkDrop presets not found: ${missing.map((p) => p.name).join(", ")}`);
     const { createVisualizer } = exportsOf<{ createVisualizer: typeof import("butterchurn").default.createVisualizer }>(butterchurn, "createVisualizer");
     this.visualizer = createVisualizer(null, this.canvas, { ...MILKDROP_SIZE, pixelRatio: 1, textureRatio: 1 });
-    this.feed = new MediaFeed(this.gl);
+    // (One brake for both: what they paint piles up in the one picture.)
+    const brake = new Brake();
+    this.screenFeed = new MediaFeed(this.gl, brake);
+    this.feed = new MediaFeed(this.gl, brake);
     this.canvas.dataset.milkdrop = "ready";
     logger.info(`MilkDrop ready: ${this.presets.size} presets in ${Math.round(performance.now() - started)} ms`);
   }
@@ -119,9 +129,10 @@ export class MilkDrop {
   /**
    * Draw the frame for `time` (`seconds` after the last) if a MilkDrop look is on screen (`shown`): the newest one's
    * preset, blended into over what's left of its switch when the one before is MilkDrop's too. `pace`: how fast it
-   * goes (slow motion's: a frame of Butterchurn's every `1 / pace` of the display's). Whether it drew.
+   * goes (slow motion's: a frame of Butterchurn's every `1 / pace` of the display's). `feeding`: the user's clip into its
+   * feedback; `screen`: a screen shared, under it. Whether it drew.
    */
-  draw(time: number, seconds: number, shown: Shown, signals: LiveSignals | null, pace = 1, feeding: Feeding | null = null): boolean {
+  draw(time: number, seconds: number, shown: Shown, signals: LiveSignals | null, pace = 1, feeding: Feeding | null = null, screen: Feeding | null = null): boolean {
     const on = shown.filter((s) => milkdropPreset(s.look));
     if (!on.length || this.disposed) return false;
     void this.prepare();
@@ -146,6 +157,8 @@ export class MilkDrop {
     this.feeding = feeding;
     this.feed?.show(feeding ? { ...feeding.media, rate: pace } : null);
     this.feed?.setRate(pace);
+    this.screen = screen;
+    this.screenFeed?.show(screen?.media ?? null);
     this.owed += Math.min(1, pace);
     this.since += seconds;
     this.slowed = pace < 1;
@@ -183,9 +196,15 @@ export class MilkDrop {
       return false;
     }
     this.failedDrawing = false;
-    // The user's clip painted into what it just drew: the next frame warps it in.
+    // A screen shared, then the user's clip, painted into what it just drew: the next frame warps them in. (The picture's
+    // measured by the first of them only: they share a brake.)
+    const screen = this.screen;
+    const screenFed = !!screen && !!this.screenFeed?.feed(visualizer.renderer, screen.mix, screen.hit, seconds, this.canvas);
+    if (screenFed && this.screenFeed!.frames % 30 === 1) this.canvas.dataset.screenFed = String(this.screenFeed!.frames);
+    const screenShown = this.screenFeed?.showing ? "on" : "";
+    if ((this.canvas.dataset.screen ?? "") !== screenShown) this.canvas.dataset.screen = screenShown;
     const feeding = this.feeding;
-    if (feeding && this.feed?.feed(visualizer.renderer, feeding.mix, feeding.hit, seconds, this.canvas)) {
+    if (feeding && this.feed?.feed(visualizer.renderer, feeding.mix, feeding.hit, seconds, screenFed ? undefined : this.canvas, feeding.fade)) {
       if (this.feed.frames % 30 === 1) {
         this.canvas.dataset.fed = String(this.feed.frames);
         this.canvas.dataset.mediaGain = this.feed.gain.toFixed(2);
@@ -230,6 +249,8 @@ export class MilkDrop {
     this.disposed = true;
     this.feed?.dispose();
     this.feed = null;
+    this.screenFeed?.dispose();
+    this.screenFeed = null;
     this.visualizer = null;
     this.gl?.getExtension("WEBGL_lose_context")?.loseContext();
     this.gl = null;
