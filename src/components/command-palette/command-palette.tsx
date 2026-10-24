@@ -3,6 +3,7 @@ import { PiArrowDown, PiArrowUp, PiCheck, PiCommand } from "react-icons/pi";
 import { create } from "zustand";
 import { cn } from "cn";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { useMainWindowDialog } from "@/components/windows/native/popups";
 import { type Rankable, rankItems, remember } from "@/lib/fuzzy";
 import { keyLabel } from "@/lib/key-labels";
 
@@ -45,12 +46,17 @@ export function CommandPalette({ commands, storageKey, placeholder = "Type a com
   const open = useCommandPalette((s) => s.open);
   // A command ran: it says where the focus goes (a window it opened), so it isn't given back to what had it.
   const ran = useRef(false);
+  // Over the editor's windows when they're the system's.
+  const { container, ready } = useMainWindowDialog(open);
   return (
-    <Dialog open={open} onOpenChange={(next) => useCommandPalette.getState().setOpen(next)}>
+    <Dialog open={open && ready} modal={!container} onOpenChange={(next) => useCommandPalette.getState().setOpen(next)}>
       <DialogContent
+        container={container}
         showCloseButton={false}
         className="top-[16%] translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-xl"
         data-command-palette
+        // The search box focuses itself (`useMainWindowDialog`).
+        onOpenAutoFocus={(e) => e.preventDefault()}
         onCloseAutoFocus={(e) => {
           if (!ran.current) return;
           ran.current = false;
@@ -58,7 +64,7 @@ export function CommandPalette({ commands, storageKey, placeholder = "Type a com
         }}
       >
         {/* Remounted on each open: an empty search, the commands as things are now. */}
-        {open && <Palette commands={commands} storageKey={storageKey} placeholder={placeholder} onRun={() => (ran.current = true)} />}
+        {open && ready && <Palette commands={commands} storageKey={storageKey} placeholder={placeholder} onRun={() => (ran.current = true)} />}
       </DialogContent>
     </Dialog>
   );

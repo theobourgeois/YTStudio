@@ -78,6 +78,15 @@ test("the command palette finds anything by name and runs it, its keys shown", a
   await page.keyboard.type("go hat");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("piano-roll")).toHaveAttribute("data-channel-name", "Hat");
+
+  // ⌘P's project search, from the music editor too: typed into at once, Escape closes it.
+  await page.keyboard.press("ControlOrMeta+p");
+  const search = page.getByRole("dialog");
+  await expect(search.getByRole("textbox", { name: "Find a project" })).toBeFocused();
+  await page.keyboard.type("keys pal");
+  await expect(search.getByRole("option").first()).toContainText("Keys palette");
+  await page.keyboard.press("Escape");
+  await expect(search).toHaveCount(0);
 });
 
 test("the Piano roll by keyboard: a cursor that Enter writes at, Tab goes round, step edit writes what's played", async ({ page }) => {

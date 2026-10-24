@@ -40,6 +40,11 @@ describe("rankItems", () => {
     expect(rankItems([typing, ...items], "pno").map((r) => r.item.id)).toEqual(["piano", "typing"]);
   });
 
+  it("puts a match from a word's start before one from inside a word, the front window's or not", () => {
+    const snap = { id: "snap", title: "Snap to (none)", group: "Playlist" };
+    expect(rankItems([snap, ...items], "pno", [], (item) => item.id === "snap")[0].item.id).toBe("piano");
+  });
+
   it("with no query, lists the recent ones first, then the preferred, then the rest", () => {
     const ranked = rankItems(items, "", ["mixer", "delete"], (item) => item.id === "piano");
     expect(ranked.map((r) => r.item.id)).toEqual(["mixer", "delete", "piano", "open-recent"]);

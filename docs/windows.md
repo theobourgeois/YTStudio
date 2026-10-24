@@ -79,6 +79,10 @@ What the page's side does:
   against the control that opened it (worked out in the control's window) is its place there. It appears while
   something is in it and hides after. Tooltips and dialogs stay in their panel (`PortalContainerProvider`,
   `PopupContainerProvider`).
+- **The main window's dialogs that open over everything** (the command palette, ⌘P's search) would be under the
+  panels, which are always above the main window. They're drawn in the popup window too (`useMainWindowDialog`), in a
+  box laid over the main window, and aren't modal there: Radix's focus trap looks for the focus in the main page's
+  document and would take it from their search box on every keystroke.
 - **Code that runs in a window can't assume `window` and `document` are its own.** They're the main page's.
   Listen for the keyboard or a drag's end with `addWindowListener` (every window, those opened later too), find what
   the pointer is over with `ownerDocument(event.target).elementFromPoint`, measure a canvas against
