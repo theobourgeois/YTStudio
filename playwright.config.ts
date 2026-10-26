@@ -53,6 +53,8 @@ export default defineConfig({
         EDITOR_MUSIC_MODELS: "stand-in",
         // And for the Serum player's browser: a small library of made-up presets, not this computer's Serum.
         EDITOR_SERUM_LIBRARY: "stand-in",
+        // And the music editor's own mouse pointers, not those of the FL Studio on this computer.
+        EDITOR_FL_STUDIO: "none",
         EDITOR_ONLINE_ASSETS: "stand-in",
         // And for Now Playing: made-up songs, never this computer's Spotify.
         EDITOR_NOW_PLAYING: "stand-in",

@@ -7,6 +7,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { Input } from "@/components/ui/input";
 import { PopoverContent } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { CURSOR } from "../cursors";
 import { AutomationMenuItems, useAutomatedControl } from "../automation/control";
 import { songGesture, useMusic } from "../store";
 import { useWheelValue } from "../wheel";
@@ -130,7 +131,7 @@ export function EqKnob({ value, defaultValue, label, ends, format, parse, typed,
                     const start = ring.to - ring.from;
                     startPointerDrag(e, {
                       threshold: 1,
-                      cursor: "ns-resize",
+                      cursor: CURSOR.moveV,
                       onStart: ring.onBegin,
                       onMove: (ev) => ring.onDrag(start + (startY - ev.clientY) / (ev.shiftKey ? TRAVEL * 10 : TRAVEL)),
                       onEnd: ring.onEnd,
@@ -144,7 +145,7 @@ export function EqKnob({ value, defaultValue, label, ends, format, parse, typed,
                   let last = own;
                   startPointerDrag(e, {
                     threshold: 1,
-                    cursor: "ns-resize",
+                    cursor: CURSOR.moveV,
                     onStart() {
                       setDragging(true);
                       onBegin();

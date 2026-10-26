@@ -1,4 +1,5 @@
 import { type ReactNode, useRef, useState } from "react";
+import { CURSOR } from "../cursors";
 import { resolveControlKey } from "../control-keys";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
@@ -112,7 +113,7 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
                 }
                 startPointerDrag(e, {
                   threshold: onHandle ? 2 : 0,
-                  cursor: "ns-resize",
+                  cursor: CURSOR.moveV,
                   onStart: begin,
                   onMove(ev) {
                     at = clamp(at + (lastY - ev.clientY) / (travel * (ev.ctrlKey || ev.metaKey ? FINE : 1)), 0, 1);

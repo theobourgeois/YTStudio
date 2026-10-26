@@ -22,6 +22,7 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { CURSOR } from "./cursors";
 import { NameColorEditor } from "./name-color-editor";
 import { ColorSwatches } from "./color-swatches";
 import {
@@ -263,7 +264,7 @@ export function ChannelRack() {
           startPointerDrag(e, {
             button: 1,
             threshold: 0,
-            cursor: "grabbing",
+            cursor: CURSOR.pan,
             onMove(_, travel) {
               steps.scrollLeft = from - travel.x;
             },
@@ -444,7 +445,7 @@ function ResizeEdge({ steps }: { steps: number }) {
         const origin = e.clientX;
         startPointerDrag(e, {
           threshold: 2,
-          cursor: "ew-resize",
+          cursor: CURSOR.moveH,
           onMove(ev) {
             const added = Math.round((ev.clientX - origin) / (STEP_W + STEP_GAP + BEAT_GAP / GROUP));
             useMusicUi.getState().setRackSteps(clamp(steps + added, MIN_RACK_STEPS, MAX_DRAGGED_STEPS));

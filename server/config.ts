@@ -71,6 +71,11 @@ export const PHOTO_MODELS = process.env.EDITOR_PHOTO_MODELS || null;
  * Serum's preferences say. "stand-in" (the e2e tests): a small library of made-up presets in the data folder.
  */
 export const SERUM_LIBRARY = process.env.EDITOR_SERUM_LIBRARY || null;
+/**
+ * FL Studio, whose mouse pointers the music editor wears (`server/music/fl-cursors.ts`): a folder of its (or its
+ * `FLEngine_x64.dll`), "none" for the editor's own (the e2e tests); unset, the newest in Program Files' Image-Line.
+ */
+export const FL_STUDIO = process.env.EDITOR_FL_STUDIO || null;
 /** "stand-in": the music suite's models (Extract stems', Convert to notes') are stood in for, never downloaded (the e2e tests). */
 export const MUSIC_MODELS = process.env.EDITOR_MUSIC_MODELS || null;
 /** "stand-in": the photo suite's Online panel searches a made-up internet (the e2e tests: `online-stand-in.ts`). */

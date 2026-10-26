@@ -28,6 +28,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { CURSOR } from "../cursors";
 import { prepare } from "../piano/draw";
 import { alpha as eqAlpha, bandColour, curveOf } from "../pro-q/draw";
 import { type EqView, bandAt, curveFrequencies, dbAt, dotOf, frequencyLines, hzAt, qAtHeight, shapeForClick, xOf, yOf, zeroY } from "../pro-q/geometry";
@@ -132,7 +133,7 @@ export function SidechainEq({ effectId, bands }: { effectId: string; bands: read
     const from = local(e);
     startPointerDrag(e, {
       threshold: 2,
-      cursor: "grabbing",
+      cursor: CURSOR.grabPoint,
       onStart: () => gesture.begin(),
       onMove(ev) {
         const at = local(ev);

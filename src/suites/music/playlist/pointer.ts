@@ -9,7 +9,7 @@ import { useMusic } from "../store";
 import { MAX_CLIP_GAIN, MAX_PLAYLIST_TRACKS } from "@shared/music/project";
 import type { PlaylistClip } from "@shared/music/types";
 import { type DragHandlers, startPointerDrag } from "@/lib/pointer-drag";
-import { CURSORS, MOVE_CURSOR, MOVING_CURSOR, RESIZE_CURSOR, STRETCH_CURSOR } from "../piano/cursors";
+import { CURSOR, STRETCH_CURSOR } from "../cursors";
 import { useMusicPreferences } from "../preferences";
 import { edgeSpeed, snapDelta, snapTick } from "../piano/geometry";
 import { useTransport } from "../transport";
@@ -152,7 +152,7 @@ function erase(e: Press, element: HTMLElement, p: PlaylistContext, hit: Playlist
     fadeOutClips([clip], p.selected);
     usePlaylist.getState().setDrag({ kind: "erase", ids: new Set(erased) });
   };
-  show(element, CURSORS.eraser);
+  show(element, CURSOR.delete);
   usePlaylist.getState().setDrag({ kind: "erase", ids: new Set() });
   take(hit);
   const sweep = sweeper(element, p, e);
@@ -204,7 +204,7 @@ export function gridPointerDown(e: Press) {
     startPointerDrag(e, {
       button: 1,
       threshold: 0,
-      cursor: "ns-resize",
+      cursor: CURSOR.moveV,
       onMove(ev) {
         const dy = local(element, ev).y - q0.y;
         usePlaylist.getState().setView(zoomTracksAt(view, q0.y, view.trackHeight * 2 ** (dy / TRACK_ZOOM_PX)));
@@ -214,11 +214,11 @@ export function gridPointerDown(e: Press) {
   }
   if (e.button === 1 || shiftPan) {
     e.preventDefault();
-    show(element, MOVING_CURSOR);
+    show(element, CURSOR.pan);
     startPointerDrag(e, {
       button: e.button === 1 ? 1 : 2,
       threshold: 0,
-      cursor: "grabbing",
+      cursor: CURSOR.pan,
       onMove(ev) {
         const q = local(element, ev);
         usePlaylist.getState().setView(scrollViewBy(view, q0.x - q.x, q0.y - q.y, p.layout[p.layout.length - 1]));
@@ -263,7 +263,7 @@ export function gridPointerDown(e: Press) {
       else next.add(hit.clip.id);
       usePlaylist.getState().select(next);
     };
-    show(element, "crosshair");
+    show(element, CURSOR.select);
     startGridDrag(e, element, {
       threshold: 3,
       onMove(ev) {
@@ -292,7 +292,7 @@ export function gridPointerDown(e: Press) {
     const from = snapTick(tick0, p.grid, "cell");
     playFrom(from);
     playlist.setDrag({ kind: "playback", tick: from });
-    show(element, CURSORS.speaker);
+    show(element, CURSOR.play);
     const stop = () => {
       cancelDrag();
       useTransport.getState().stop();
@@ -304,7 +304,7 @@ export function gridPointerDown(e: Press) {
   if (tool === "mute") {
     const muted = hit ? !hit.clip.muted : true;
     const swept = new Set<number>(hit ? [hit.clip.id] : []);
-    show(element, CURSORS.mute);
+    show(element, CURSOR.mute);
     playlist.setDrag({ kind: "mute", ids: new Set(swept), muted });
     const sweep = sweeper(element, p, e);
     startGridDrag(e, element, {
@@ -333,7 +333,7 @@ export function gridPointerDown(e: Press) {
       usePlaylist.getState().setDrag({ kind: "slice", tick, top: track0, bottom: Math.min(yToTrack(p.layout, now, q.y), lastTrack(p)), all: ev.shiftKey });
     };
     usePlaylist.setState({ sliceHover: null });
-    show(element, CURSORS.knife);
+    show(element, CURSOR.slice);
     slice(e);
     startPointerDrag(e, { threshold: 0, onMove: slice, ...finish });
     return;
@@ -343,10 +343,10 @@ export function gridPointerDown(e: Press) {
   if (tool === "slip") {
     if (!hit) return;
     const ids = p.selected.has(hit.clip.id) ? p.selected : new Set([hit.clip.id]);
-    show(element, RESIZE_CURSOR);
+    show(element, CURSOR.slip);
     startGridDrag(e, element, {
       threshold: 2,
-      cursor: "ew-resize",
+      cursor: CURSOR.slip,
       onMove: (ev) => usePlaylist.getState().setDrag({ kind: "slip", ids, ticks: snapDelta(at(ev).tick - tick0, gridOf(ev)) }),
       ...finish,
     });
@@ -366,10 +366,10 @@ export function gridPointerDown(e: Press) {
       // With Stretch on, an audio clip's edge stretches its sound (and every selected clip's) to the new length.
       const stretching = usePlaylist.getState().stretch && clip.kind === "audio";
       const mode = useMusicPreferences.getState().stretchMode;
-      show(element, stretching ? STRETCH_CURSOR : RESIZE_CURSOR);
+      show(element, stretching ? STRETCH_CURSOR : hit.edge === "start" ? CURSOR.sizeL : CURSOR.sizeR);
       startGridDrag(e, element, {
         threshold: 2,
-        cursor: stretching ? STRETCH_CURSOR : "ew-resize",
+        cursor: stretching ? STRETCH_CURSOR : hit.edge === "start" ? CURSOR.sizeL : CURSOR.sizeR,
         onMove(ev) {
           const moved = snapTick(edgeTick + (at(ev).tick - tick0), gridOf(ev), "line");
           const edge = hit.edge!;
@@ -380,7 +380,7 @@ export function gridPointerDown(e: Press) {
       return;
     }
     const clone = e.shiftKey;
-    show(element, MOVING_CURSOR);
+    show(element, CURSOR.handDrag);
     startGridDrag(e, element, {
       threshold: 2,
       onMove(ev) {
@@ -449,7 +449,7 @@ function zoomTool(e: Press, tick0: number, track0: number, x0: number, at: (ev: 
   startPointerDrag(e, {
     button: e.button === 2 ? 2 : 0,
     threshold: 3,
-    cursor: "zoom-in",
+    cursor: CURSOR.zoom,
     onMove(ev) {
       const q = at(ev);
       usePlaylist.getState().setDrag({ kind: "zoom", from: tick0, to: q.tick, top: track0, bottom: q.track });
@@ -496,10 +496,10 @@ function dragHandle(
   const length = clipLength(clip, p.ctx);
   const end = clipEnd(clip, p.ctx);
   const vertical = handle === "gain" || handle === "fadeInTension" || handle === "fadeOutTension";
-  show(element, vertical ? "ns-resize" : RESIZE_CURSOR);
+  show(element, vertical ? CURSOR.moveV : CURSOR.moveH);
   startGridDrag(e, element, {
     threshold: 1,
-    cursor: vertical ? "ns-resize" : "ew-resize",
+    cursor: vertical ? CURSOR.moveV : CURSOR.moveH,
     onMove(ev) {
       const q = at(ev);
       const set = usePlaylist.getState().setDrag;
@@ -531,22 +531,22 @@ export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY:
   const p = playlistContext();
   if (!p) return "default";
   const { view, tool } = usePlaylist.getState();
-  if (ev.ctrlKey || ev.metaKey) return "crosshair";
-  if (tool === "delete") return CURSORS.eraser;
-  if (tool === "mute") return CURSORS.mute;
-  if (tool === "slice") return CURSORS.knife;
-  if (tool === "playback") return CURSORS.speaker;
-  if (tool === "zoom") return "zoom-in";
+  if (ev.ctrlKey || ev.metaKey) return CURSOR.select;
+  if (tool === "delete") return CURSOR.delete;
+  if (tool === "mute") return CURSOR.mute;
+  if (tool === "slice") return CURSOR.slice;
+  if (tool === "playback") return CURSOR.play;
+  if (tool === "zoom") return CURSOR.zoom;
   const q = local(element, ev);
   const hit = hitClip(p.clips, p.ctx, p.layout, view, q.x, q.y, p.selected);
   if (hit?.menu) return "pointer";
   const onCurve = hit?.clip.kind === "automation" && (tool === "draw" || tool === "paint") && (!hit.edge || onCurvePoint(p, view, hit.clip, q.x, q.y)) ? curveCursor(p, view, hit.clip, q.x, q.y) : null;
   if (onCurve) return onCurve;
-  if (tool === "slip") return hit ? RESIZE_CURSOR : "default";
-  if (tool === "select") return hit ? "pointer" : "default";
-  if (hit?.handle) return hit.handle === "fadeIn" || hit.handle === "fadeOut" ? RESIZE_CURSOR : "ns-resize";
-  if (hit) return hit.edge ? (usePlaylist.getState().stretch && hit.clip.kind === "audio" ? STRETCH_CURSOR : RESIZE_CURSOR) : MOVE_CURSOR;
-  return tool === "paint" ? CURSORS.brush : CURSORS.pencil;
+  if (tool === "slip") return CURSOR.slip;
+  if (tool === "select") return hit ? CURSOR.hand : CURSOR.select;
+  if (hit?.handle) return hit.handle === "fadeIn" || hit.handle === "fadeOut" ? CURSOR.moveH : CURSOR.moveV;
+  if (hit) return hit.edge ? (usePlaylist.getState().stretch && hit.clip.kind === "audio" ? STRETCH_CURSOR : hit.edge === "start" ? CURSOR.sizeL : CURSOR.sizeR) : CURSOR.hand;
+  return tool === "paint" ? CURSOR.brush : CURSOR.pen;
 }
 
 /** The automation point under the pointer (the draw and paint tools), drawn larger with its value. */
@@ -611,7 +611,7 @@ export function rulerPointerDown(e: Press) {
     if (isDouble(e)) return usePlaylist.setState({ renamingMarker: { id: marker.id, x } });
     startPointerDrag(e, {
       threshold: 3,
-      cursor: "ew-resize",
+      cursor: CURSOR.moveH,
       onMove: (ev) => usePlaylist.getState().setDrag({ kind: "marker", id: marker.id, tick: Math.max(0, marker.tick + tickAt(ev) - tickAt(e)) }),
       onEnd: commitDrag,
       onClick: () => useTransport.getState().jumpSongTo(marker.tick),

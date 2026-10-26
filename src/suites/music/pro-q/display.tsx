@@ -7,6 +7,7 @@ import { type ProQPatch, updateProQ } from "@shared/music/pro-q";
 import type { EqBand, MusicProject, ProQ } from "@shared/music/types";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { CURSOR } from "../cursors";
 import { prepare } from "../piano/draw";
 import { useMusic } from "../store";
 import { useTransport } from "../transport";
@@ -197,7 +198,7 @@ export function Display({ effectId, pq, bypassed }: { effectId: string; pq: ProQ
     // Off a band, its values stay a moment (the pointer may be on its way to them).
     if (band !== null) hoverBand(effectId, band);
     else if (ui.hover?.effectId === effectId) leaveHover();
-    setCursor(hit.kind === "band" ? "grab" : hit.kind === "range" ? "ns-resize" : hit.kind === "curve" ? "copy" : hit.kind === "scale" ? "ew-resize" : "default");
+    setCursor(hit.kind === "band" ? CURSOR.grabPoint : hit.kind === "range" ? CURSOR.moveV : hit.kind === "curve" ? "copy" : hit.kind === "scale" ? CURSOR.moveH : "default");
     // Resting on the spectrum a moment (away from the bands): Spectrum Grab holds it and labels its peaks.
     if (grabTimer.current) clearTimeout(grabTimer.current);
     const grabbing = ui.grab?.effectId === effectId;

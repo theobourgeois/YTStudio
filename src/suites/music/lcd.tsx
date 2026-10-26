@@ -6,6 +6,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { Input } from "@/components/ui/input";
 import { PopoverContent } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { CURSOR } from "./cursors";
 import { resolveControlKey } from "./control-keys";
 import { useWheelValue } from "./wheel";
 
@@ -74,7 +75,7 @@ export function Lcd({ value, min, max, label, text, derived, menu, typeIn, class
                 const start = value;
                 startPointerDrag(e, {
                   threshold: 3,
-                  cursor: "ns-resize",
+                  cursor: CURSOR.moveV,
                   onStart: onBegin,
                   onMove: (ev) => onChange(clamp(start + Math.round((origin - ev.clientY) / DRAG_STEP), min, max)),
                   onEnd,

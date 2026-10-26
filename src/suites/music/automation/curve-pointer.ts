@@ -12,6 +12,7 @@ import { addPoint, curveValue, deletePoint, editPoints, movePoint, paintSteps, s
 import { clipEnd } from "@shared/music/playlist";
 import { type Automation, type AutomationPoint, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { CURSOR } from "../cursors";
 import { snapTick } from "../piano/geometry";
 import { type PlaylistContext, cancelDrag, commitDrag } from "../playlist/actions";
 import { TITLE_HEIGHT, tickToX, trackTop } from "../playlist/geometry";
@@ -66,13 +67,13 @@ export function curveHoverAt(p: PlaylistContext, view: PlaylistView, clip: Playl
   return under?.hit?.kind === "point" ? { automationId: under.curve.automation.id, index: under.hit.index } : null;
 }
 
-/** The pointer over a clip's curve: on a point, the plain arrow (as FL's, not a hand); on a tension handle, up and down; in Step mode, a crosshair. Null elsewhere. */
+/** The pointer over a clip's curve: on a point, FL's point grabber; on a tension handle, its tension arrows; in Step mode, where a point goes. Null elsewhere. */
 export function curveCursor(p: PlaylistContext, view: PlaylistView, clip: PlaylistClip, x: number, y: number): string | null {
   const under = curveUnder(p, view, clip, x, y);
   // Step mode paints anywhere on the curve but its tension handles.
-  if (under && usePlaylist.getState().curveStep && under.hit?.kind !== "tension") return "crosshair";
+  if (under && usePlaylist.getState().curveStep && under.hit?.kind !== "tension") return CURSOR.addPoint;
   if (!under?.hit) return null;
-  return under.hit.kind === "point" ? "default" : "ns-resize";
+  return under.hit.kind === "point" ? CURSOR.grabPoint : CURSOR.tension;
 }
 
 type Press = ReactPointerEvent<HTMLElement>;
@@ -112,7 +113,7 @@ export function curvePointerDown(e: Press, element: HTMLElement, p: PlaylistCont
     startPointerDrag(e, {
       button,
       threshold: button === 2 ? 0 : 2,
-      cursor: "default",
+      cursor: CURSOR.grabPoint,
       onMove(ev) {
         const q = local(ev);
         // Shift: only along (its value stays); Ctrl: only up and down (its time stays).
@@ -152,7 +153,7 @@ export function curvePointerDown(e: Press, element: HTMLElement, p: PlaylistCont
     paint({ x, y }, e.altKey);
     startPointerDrag(e, {
       threshold: 0,
-      cursor: "crosshair",
+      cursor: CURSOR.addPoint,
       onMove: (ev) => paint(local(ev), ev.altKey),
       onEnd: commitDrag,
       onClick: commitDrag,
@@ -199,7 +200,7 @@ export function curvePointerDown(e: Press, element: HTMLElement, p: PlaylistCont
   const start = points[hit.index].tension;
   startPointerDrag(e, {
     threshold: 1,
-    cursor: "ns-resize",
+    cursor: CURSOR.tension,
     onMove(ev) {
       const up = y - local(ev).y;
       show(updatePoint(points, hit.index, { tension: draggedTension(points, hit.index, start, up, ev.ctrlKey || ev.metaKey) }));

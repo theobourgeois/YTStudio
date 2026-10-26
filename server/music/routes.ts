@@ -4,6 +4,7 @@ import { isMusicModelName } from "../../shared/music/models.ts";
 import { HttpError } from "../storage.ts";
 import type { AudioEngine } from "./engine.ts";
 import type { MusicExports } from "./exports.ts";
+import type { FlStudioCursors } from "./fl-cursors.ts";
 import type { NoteHearing } from "./hearing.ts";
 import type { MusicModels } from "./ml.ts";
 import type { StemSeparator } from "./stems.ts";
@@ -227,6 +228,15 @@ export function noteRoutes(hearing: NoteHearing): Router {
   });
   router.post("/", json(), async (req, res) => {
     res.json(await hearing.hear(req.body));
+  });
+  return router;
+}
+
+/** `/api/music/cursors`: FL Studio's mouse pointers, out of the FL Studio on this computer (none without one). */
+export function flCursorRoutes(cursors: FlStudioCursors): Router {
+  const router = Router();
+  router.get("/", async (_req, res) => {
+    res.json(await cursors.get());
   });
   return router;
 }

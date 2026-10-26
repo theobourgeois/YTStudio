@@ -19,6 +19,7 @@ import {
 } from "@shared/music/serum-sound";
 import { PPQ } from "@shared/music/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { CURSOR } from "../cursors";
 import { Caption, CompKnob } from "../pro-c/knob";
 import { useSong } from "../store";
 import { useTransport } from "../transport";
@@ -219,7 +220,7 @@ export function EnvelopeView({ channelId, env }: { channelId: string; env: Serum
     setFrozen({ span, step });
     startPointerDrag(e, {
       threshold: 0,
-      cursor: "grabbing",
+      cursor: CURSOR.grabPoint,
       onStart: () => setControls(channelId, last, "begin", label),
       onMove: (_ev, travel) => {
         last = values(travel.x, travel.y);
@@ -245,7 +246,7 @@ export function EnvelopeView({ channelId, env }: { channelId: string; env: Serum
     let last = c[field].value;
     startPointerDrag(e, {
       threshold: 0,
-      cursor: "ns-resize",
+      cursor: CURSOR.tension,
       onStart: () => setControls(channelId, { [param]: last }, "begin", label),
       onMove: (_ev, travel) => {
         last = curveThrough(y0, y1, startMiddle - travel.y / h);
@@ -529,7 +530,7 @@ function ShapeEditor({
     let next = points;
     startPointerDrag(e, {
       threshold: 2,
-      cursor: "grabbing",
+      cursor: CURSOR.grabPoint,
       onMove: (ev) => {
         const [mx, my] = local(ev);
         next = movePoint(points, i, mx, my);
@@ -551,7 +552,7 @@ function ShapeEditor({
     let next = points;
     startPointerDrag(e, {
       threshold: 1,
-      cursor: "ns-resize",
+      cursor: CURSOR.tension,
       onMove: (ev) => {
         const [, my] = local(ev);
         next = withCurve(points, i, segmentCurveThrough(y0, y1, clamp(my, 0, 1)));

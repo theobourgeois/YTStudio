@@ -47,6 +47,7 @@ import {
 import { DEFAULT_FADER, MASTER_TRACK_ID } from "@shared/music/project";
 import { assignAudioTracks } from "@shared/music/recording";
 import type { MixerDock, MusicProject } from "@shared/music/types";
+import { CURSOR } from "../cursors";
 import { musicApi } from "../api";
 import { selectedIds as selectedChannelIds } from "../rack-actions";
 import { songGesture, useMusic } from "../store";
@@ -214,7 +215,7 @@ export function dragTracks(e: ReactPointerEvent<Element>, id: string) {
   let drop: { before: string | null; dock: MixerDock } | null = null;
   startPointerDrag(e, {
     threshold: 5,
-    cursor: "grabbing",
+    cursor: CURSOR.handDrag,
     onMove(ev) {
       const strip = ownerDocument(ev.target).elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-track]");
       const area = strip?.closest('[data-testid="mixer"]')?.querySelector<HTMLElement>('[role="list"]');
@@ -416,7 +417,7 @@ export function plugCable(e: ReactPointerEvent<Element>) {
   if (!from) return;
   startPointerDrag(e, {
     threshold: 4,
-    cursor: "grabbing",
+    cursor: CURSOR.handDrag,
     onMove(ev) {
       const over = trackAt(ev.clientX, ev.clientY, ownerDocument(ev.target));
       view.plug({ from, x: ev.clientX, y: ev.clientY, over: over && !sendSources().includes(over) ? over : null, add: ev.metaKey || ev.ctrlKey || ev.altKey });

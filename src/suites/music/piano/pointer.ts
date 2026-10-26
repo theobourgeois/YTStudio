@@ -12,7 +12,7 @@ import { type Note, STEP_TICKS } from "@shared/music/types";
 import { type DragHandlers, startPointerDrag } from "@/lib/pointer-drag";
 import { useTransport } from "../transport";
 import { type PianoContext, commitDrag, cancelDrag, deselect, pianoContext, selectTime } from "./actions";
-import { CURSORS, MOVE_CURSOR, MOVING_CURSOR, RESIZE_CURSOR } from "./cursors";
+import { CURSOR } from "../cursors";
 import { stretchHandle } from "./draw";
 import { fadeOut } from "./fades";
 import {
@@ -161,7 +161,7 @@ function scrub(e: Press, element: HTMLElement, ctx: PianoContext, button: 0 | 2)
     keys.set(notesAt(ctx.notes, tick));
     usePiano.getState().setDrag({ kind: "playback", tick });
   };
-  show(element, CURSORS.speaker);
+  show(element, CURSOR.play);
   at(local(element, e).x);
   const stop = () => {
     keys.release();
@@ -179,7 +179,7 @@ function erase(e: Press, element: HTMLElement, ctx: PianoContext, hit: Note | nu
     fadeOut([note], ctx.selected);
     usePiano.getState().setDrag({ kind: "erase", ids: new Set(erased) });
   };
-  show(element, CURSORS.eraser);
+  show(element, CURSOR.delete);
   usePiano.getState().setDrag({ kind: "erase", ids: new Set() });
   take(hit);
   const sweep = sweeper(element, e);
@@ -276,11 +276,11 @@ export function gridPointerDown(e: Press) {
   if (e.button === 1 && (e.ctrlKey || e.metaKey)) return zoomRows(e, element);
   if (e.button === 1) {
     e.preventDefault();
-    show(element, MOVING_CURSOR);
+    show(element, CURSOR.pan);
     startPointerDrag(e, {
       button: 1,
       threshold: 0,
-      cursor: "grabbing",
+      cursor: CURSOR.pan,
       onMove(ev) {
         const q = local(element, ev);
         usePiano.getState().setView({
@@ -329,10 +329,10 @@ export function gridPointerDown(e: Press) {
     const handle = stretchHandle(view, bounds);
     if (p.x >= handle.x - 2 && p.x <= handle.x + handle.size + 2 && p.y >= handle.y - 2 && p.y <= handle.y + handle.size + 2) {
       const span = bounds.end - bounds.start;
-      show(element, RESIZE_CURSOR);
+      show(element, CURSOR.sizeR);
       startGridDrag(e, element, {
         threshold: 0,
-        cursor: "ew-resize",
+        cursor: CURSOR.sizeR,
         onMove(ev) {
           const end = Math.max(bounds.start + 1, snapTick(at(ev).tick, gridOf(ev), "line"));
           usePiano.getState().setDrag({ kind: "stretch", ids: ctx.selected, factor: (end - bounds.start) / span, anchor: bounds.start });
@@ -353,7 +353,7 @@ export function gridPointerDown(e: Press) {
       else next.add(hit.note.id);
       usePiano.getState().select(next);
     };
-    show(element, "crosshair");
+    show(element, CURSOR.select);
     startGridDrag(e, element, {
       threshold: 3,
       onMove(ev) {
@@ -382,7 +382,7 @@ export function gridPointerDown(e: Press) {
     // The first note says which way: muting, or unmuting what's swept after it.
     const muted = hit ? !hit.note.muted : true;
     const swept = new Set<number>(hit ? [hit.note.id] : []);
-    show(element, CURSORS.mute);
+    show(element, CURSOR.mute);
     piano.setDrag({ kind: "mute", ids: new Set(swept), muted });
     const sweep = sweeper(element, e);
     startGridDrag(e, element, {
@@ -411,7 +411,7 @@ export function gridPointerDown(e: Press) {
       usePiano.getState().setDrag({ kind: "slice", tick: to.tick, low: from.pitch, high: to.pitch, column: ev.shiftKey });
     };
     usePiano.setState({ sliceHover: null });
-    show(element, CURSORS.knife);
+    show(element, CURSOR.slice);
     slice(e);
     startPointerDrag(e, { threshold: 0, onMove: slice, ...finish });
     return;
@@ -427,10 +427,10 @@ export function gridPointerDown(e: Press) {
     usePiano.setState({ noteLength: grab.note.length });
     if (grab.edge) {
       const end = grab.note.start + grab.note.length;
-      show(element, RESIZE_CURSOR);
+      show(element, CURSOR.sizeR);
       startGridDrag(e, element, {
         threshold: PRESS_SLOP,
-        cursor: "ew-resize",
+        cursor: CURSOR.sizeR,
         onMove(ev) {
           const newEnd = snapTick(end + (at(ev).tick - tick0), gridOf(ev), "line");
           const ticks = Math.max(newEnd, grab.note.start + 1) - end;
@@ -442,7 +442,7 @@ export function gridPointerDown(e: Press) {
       return;
     }
     const clone = e.shiftKey;
-    show(element, MOVING_CURSOR);
+    show(element, CURSOR.handDrag);
     keys.to(grab.note.pitch);
     startGridDrag(e, element, {
       threshold: PRESS_SLOP,
@@ -602,7 +602,7 @@ function zoomTool(e: Press, element: HTMLElement, tick0: number, pitch0: number,
   const x0 = local(element, e).x;
   startPointerDrag(e, {
     threshold: 3,
-    cursor: "zoom-in",
+    cursor: CURSOR.zoom,
     onMove(ev) {
       const q = at(ev);
       usePiano.getState().setDrag({ kind: "zoom", from: tick0, to: q.tick, low: pitch0, high: q.pitch });
@@ -628,22 +628,22 @@ export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY:
   const ctx = pianoContext();
   if (!ctx) return "default";
   const { view, tool } = usePiano.getState();
-  if (ev.ctrlKey || ev.metaKey) return "crosshair";
-  if (tool === "delete") return CURSORS.eraser;
-  if (tool === "mute") return CURSORS.mute;
-  if (tool === "slice") return CURSORS.knife;
-  if (tool === "playback") return CURSORS.speaker;
-  if (tool === "zoom") return "zoom-in";
+  if (ev.ctrlKey || ev.metaKey) return CURSOR.select;
+  if (tool === "delete") return CURSOR.delete;
+  if (tool === "mute") return CURSOR.mute;
+  if (tool === "slice") return CURSOR.slice;
+  if (tool === "playback") return CURSOR.play;
+  if (tool === "zoom") return CURSOR.zoom;
   const p = local(element, ev);
   const bounds = ctx.selected.size > 1 ? noteBounds(ctx.notes, ctx.selected) : null;
   if (bounds) {
     const handle = stretchHandle(view, bounds);
-    if (p.x >= handle.x - 2 && p.x <= handle.x + handle.size + 2 && p.y >= handle.y - 2 && p.y <= handle.y + handle.size + 2) return RESIZE_CURSOR;
+    if (p.x >= handle.x - 2 && p.x <= handle.x + handle.size + 2 && p.y >= handle.y - 2 && p.y <= handle.y + handle.size + 2) return CURSOR.sizeR;
   }
-  if (tool === "select") return hitNote(ctx.notes, view, p.x, p.y, ctx.selected) ? "pointer" : "default";
+  if (tool === "select") return hitNote(ctx.notes, view, p.x, p.y, ctx.selected) ? CURSOR.hand : CURSOR.select;
   const hit = hitNote(ctx.notes, view, p.x, p.y, ctx.selected, RESIZE_REACH);
-  if (hit) return hit.edge ? RESIZE_CURSOR : MOVE_CURSOR;
-  return tool === "paint" ? CURSORS.brush : CURSORS.pencil;
+  if (hit) return hit.edge ? CURSOR.sizeR : CURSOR.hand;
+  return tool === "paint" ? CURSOR.brush : CURSOR.pen;
 }
 
 /**
@@ -726,7 +726,7 @@ function zoomRows(e: Press, element: HTMLElement) {
   startPointerDrag(e, {
     button: 1,
     threshold: 0,
-    cursor: "ns-resize",
+    cursor: CURSOR.moveV,
     onMove: (ev) => usePiano.getState().setView(zoomRowsAt(view, y, view.rowHeight * 2 ** ((e.clientY - ev.clientY) / ROW_ZOOM_DRAG))),
   });
 }
@@ -803,7 +803,7 @@ export function lanePointerDown(e: Press) {
     set(first.y);
     startPointerDrag(e, {
       threshold: 0,
-      cursor: "ns-resize",
+      cursor: CURSOR.moveV,
       onMove: (ev) => set(local(element, ev).y),
       onEnd: commitDrag,
       onClick: commitDrag,

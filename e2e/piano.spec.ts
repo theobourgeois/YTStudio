@@ -332,7 +332,7 @@ test("the window fills the desktop, resizes and snaps; the ruler moves a playing
   await page.mouse.up({ button: "right" });
   const onNote = await at(page, 40, 72);
   await page.mouse.move(onNote.x, onNote.y);
-  await expect.poll(cursor).toBe("grab");
+  await expect.poll(cursor).toBe("var(--fl-cursor-hand, grab)");
 
   // A note past the pattern's end takes the pattern to the end of the two bars it's in (bar 3: four bars).
   await expect(roll).toHaveAttribute("data-loop", "0:384");

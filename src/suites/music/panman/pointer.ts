@@ -16,6 +16,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { addShapeEvent, addStepPoint, deleteShapeEvent, deleteStepPoint, editShapeEvents, editStepPoints, moveStepPoint, setShapeEvent } from "@shared/music/panman";
 import type { PanShapeEvent, PanStepPoint } from "@shared/music/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { CURSOR } from "../cursors";
 import { useMusic } from "../store";
 import { type EditorBox, hitEvent, hitPoint, snapEdge, snapTick, xTick, yValue } from "./geometry";
 import { usePanUi } from "./store";
@@ -37,7 +38,7 @@ function local(element: HTMLElement, ev: { clientX: number; clientY: number }) {
 }
 
 /** The pointer over the step editor: a hand on a point, else a cross. */
-export const stepCursor = (t: EditorTarget, points: readonly PanStepPoint[], x: number, y: number) => (hitPoint(points, t.box, x, y) >= 0 ? "grab" : "crosshair");
+export const stepCursor = (t: EditorTarget, points: readonly PanStepPoint[], x: number, y: number) => (hitPoint(points, t.box, x, y) >= 0 ? CURSOR.grabPoint : CURSOR.addPoint);
 
 /** A press on the Rhythm Step Editor at `x`, `y` px inside it, over `points` (what it shows). */
 export function stepPointerDown(e: ReactPointerEvent<HTMLElement>, element: HTMLElement, t: EditorTarget, points: PanStepPoint[], x: number, y: number) {
@@ -66,7 +67,7 @@ export function stepPointerDown(e: ReactPointerEvent<HTMLElement>, element: HTML
   show(base);
   startPointerDrag(e, {
     threshold: 0,
-    cursor: "grabbing",
+    cursor: CURSOR.grabPoint,
     onMove(ev) {
       const at = local(element, ev);
       const free = ev.ctrlKey || ev.metaKey;
@@ -81,7 +82,7 @@ export function stepPointerDown(e: ReactPointerEvent<HTMLElement>, element: HTML
 /** The pointer over the Rhythm Editor: resizing on an event's edges, a hand on its body, else a cross. */
 export function shapeCursor(t: EditorTarget, events: readonly PanShapeEvent[], x: number) {
   const hit = hitEvent(events, t.box, x);
-  return !hit ? "crosshair" : hit.part === "body" ? "grab" : "ew-resize";
+  return !hit ? CURSOR.addPoint : hit.part === "body" ? CURSOR.hand : hit.part === "start" ? CURSOR.sizeL : CURSOR.sizeR;
 }
 
 /** A press on the Rhythm Editor at `x` px inside it, over `events` (what it shows). */
@@ -110,7 +111,7 @@ export function shapePointerDown(e: ReactPointerEvent<HTMLElement>, element: HTM
     show(base);
     startPointerDrag(e, {
       threshold: 3,
-      cursor: "ew-resize",
+      cursor: CURSOR.sizeR,
       onMove: (ev) => show(setShapeEvent(base, index, start, Math.max(start + t.grid, snapEdge(t.box, xTick(t.box, local(element, ev).x), t.grid)), t.length)),
       onEnd: finish,
       onClick: finish,
@@ -126,7 +127,7 @@ export function shapePointerDown(e: ReactPointerEvent<HTMLElement>, element: HTM
   const mode = e.altKey && e.shiftKey ? "move" : e.altKey ? "end" : e.shiftKey ? "start" : hit.part === "body" ? "move" : hit.part;
   startPointerDrag(e, {
     threshold: 3,
-    cursor: mode === "move" ? "grabbing" : "ew-resize",
+    cursor: mode === "move" ? CURSOR.handDrag : mode === "start" ? CURSOR.sizeL : CURSOR.sizeR,
     onMove(ev) {
       const free = ev.ctrlKey || ev.metaKey;
       const tick = xTick(t.box, local(element, ev).x);
