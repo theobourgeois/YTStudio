@@ -19,6 +19,7 @@ import type { InputMonitor, MixerEffect, PluginRef } from "@shared/music/types";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useSettings } from "@/stores/settings";
 import { askMicrophone } from "@/lib/desktop";
+import { CURSOR } from "../cursors";
 import { inputChoices, inputKey, inputLabel, useInputs } from "../inputs";
 import { setTrackInput } from "../recording";
 import { ArmButton } from "./arm-button";
@@ -142,7 +143,7 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
     };
     startPointerDrag(e, {
       threshold: 4,
-      cursor: "grabbing",
+      cursor: CURSOR.handDrag,
       onClick: () => pressed?.click(),
       onStart: () => (dragged.current = true),
       onMove(ev) {

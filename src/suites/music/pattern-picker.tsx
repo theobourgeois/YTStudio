@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { CURSOR } from "./cursors";
 import { useCurrentPattern, useMusic, useSong } from "./store";
 import { wheelSteps, wheelTurn } from "./wheel";
 
@@ -48,7 +49,7 @@ export function PatternPicker() {
           const origin = e.clientY;
           startPointerDrag(e, {
             threshold: 3,
-            cursor: "ns-resize",
+            cursor: CURSOR.moveV,
             onMove(ev) {
               const want = Math.trunc((origin - ev.clientY) / DRAG_STEP);
               for (; steps < want; steps++) useMusic.getState().stepPattern(1);

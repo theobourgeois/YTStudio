@@ -20,6 +20,7 @@ import { EQ_MAX_GAIN, EQ_MAX_Q, EQ_MIN_Q, hasGain } from "@shared/music/pro-q-pr
 import { dragBands, editProQ, fitBand, nextShape, nextSlope, scaleQ, updateBands } from "@shared/music/pro-q";
 import type { EqBand, ProQ } from "@shared/music/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { CURSOR } from "../cursors";
 import { songGesture } from "../store";
 import { clickBand, createBand, editEq, proQOf, selectBands, selected } from "./actions";
 import { type EqView, bandAt, dbAt, dotOf, FULL, hzAt, qAtHeight, qHeight, scrolled, shapeForClick, shapeForCurveDrag, xOf, yOf, zoomed } from "./geometry";
@@ -88,7 +89,7 @@ export function displayPointerDown(e: ReactPointerEvent<HTMLElement>, ctx: Displ
     const band = hit.band;
     startPointerDrag(e, {
       threshold: 0,
-      cursor: "ns-resize",
+      cursor: CURSOR.moveV,
       onStart: () => gesture.begin(),
       onMove: (ev) => {
         const range = clamp(Math.round((dbAt(ctx.view(), ctx.local(ev).y) - band.gain) * 100) / 100, -EQ_MAX_GAIN, EQ_MAX_GAIN);
@@ -209,7 +210,7 @@ function dragBand(e: ReactPointerEvent<HTMLElement>, ctx: DisplayContext, id: nu
   let fine = false;
   startPointerDrag(e, {
     threshold: 2,
-    cursor: "grabbing",
+    cursor: CURSOR.grabPoint,
     onStart() {
       base = proQOf(ctx.effectId)?.bands ?? base;
       gesture.begin();
@@ -308,7 +309,7 @@ function scalePointerDown(e: ReactPointerEvent<HTMLElement>, ctx: DisplayContext
   const from = { ...eqView(ctx.effectId) };
   startPointerDrag(e, {
     threshold: 2,
-    cursor: "move",
+    cursor: CURSOR.move,
     onMove(ev) {
       const p = ctx.local(ev);
       const view = ctx.view();

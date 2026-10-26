@@ -3,6 +3,7 @@ import { addTap, echoTempo, editTaps, heardTaps, moveTap, updateRhythm } from "@
 import { maxTapSeconds } from "@shared/music/echo-boy-presets";
 import type { EchoBoy, RhythmTap } from "@shared/music/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { CURSOR } from "../cursors";
 import { songGesture, useMusic, useSong } from "../store";
 import { BOTTOM, EDGE, type GridBox, beatX, gridLines, levelY, placeBeat, tapAt, tapReadout, yLevel } from "./rhythm-geometry";
 
@@ -68,7 +69,7 @@ export function RhythmGrid({ effectId, eb }: { effectId: string; eb: EchoBoy }) 
           const base = r.taps;
           startPointerDrag(e, {
             threshold: 2,
-            cursor: "grabbing",
+            cursor: CURSOR.grabPoint,
             onStart: () => gesture.begin(),
             onMove: (ev) => {
               const p = local(ev);

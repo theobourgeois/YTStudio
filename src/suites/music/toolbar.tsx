@@ -30,6 +30,7 @@ import { canRedo, canUndo } from "@/lib/document-history";
 import { IS_MAC, keyLabel } from "@/lib/key-labels";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import type { AutomationTarget } from "@shared/music/types";
+import { CURSOR } from "./cursors";
 import { PERCENT, SongKnob, percent } from "./knob";
 import { ModeLights } from "./mode-switch";
 import { CpuGraph, OutputGraph } from "./monitors";
@@ -474,7 +475,7 @@ function TempoLcd() {
           const start = Math.round(tempo);
           startPointerDrag(e, {
             threshold: 3,
-            cursor: "ns-resize",
+            cursor: CURSOR.moveV,
             lock: true,
             onStart: () => gesture.begin(),
             onMove: (_, travel) => {

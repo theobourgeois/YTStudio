@@ -34,6 +34,7 @@ import type {
 import type { ExportSongRequest, MusicExportJob } from "@shared/music/export";
 import type { MakeVisualizerRequest, VisualizerJob } from "@shared/music/visualizer";
 import type { MusicModelName } from "@shared/music/models";
+import type { FlCursorsResponse } from "@shared/music/cursors";
 import type { StemJob, StemRequest } from "@shared/music/stems";
 import type { HeardAudioJson } from "@shared/music/transcribe";
 import type { ModelStatus } from "@shared/models";
@@ -44,6 +45,8 @@ import { request } from "@/lib/api";
 const pathQuery = (path: string) => `path=${encodeURIComponent(path)}`;
 
 export const musicApi = {
+  /** FL Studio's mouse pointers, out of the FL Studio on this computer (`cursors.ts`). */
+  flCursors: () => request<FlCursorsResponse>("/api/music/cursors"),
   mixerSetupSettings: () => request<{ configured: boolean }>("/api/music/mixer-setup/settings"),
   setMixerSetupKey: (key: string | null) => request<{ configured: boolean }>("/api/music/mixer-setup/settings", { method: "PUT", body: JSON.stringify({ key }) }),
   classifyMixer: (body: MixerSetupRequest) => request<MixerSetupResult>("/api/music/mixer-setup", { method: "POST", body: JSON.stringify(body) }),

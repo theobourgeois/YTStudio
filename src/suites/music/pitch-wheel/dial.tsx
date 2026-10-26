@@ -6,6 +6,7 @@ import type { AutomationTarget, Wheel } from "@shared/music/types";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { CURSOR } from "../cursors";
 import { AutomationMenuItems, useAutomatedControl } from "../automation/control";
 import { prepare } from "../piano/draw";
 import { songGesture, useMusic } from "../store";
@@ -154,7 +155,7 @@ export function Dial({ effectId, wheel, settings, closed, size }: { effectId: st
               };
               startPointerDrag(e, {
                 threshold: 1,
-                cursor: "grabbing",
+                cursor: CURSOR.grabPoint,
                 onStart() {
                   control.hold();
                   gesture.begin();

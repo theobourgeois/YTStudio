@@ -13,6 +13,7 @@ import { type GrossKind, editGrossSlot, paintStep, slidePoint } from "@shared/mu
 import { GROSS_TICKS } from "@shared/music/gross-beat-presets";
 import type { AutomationPoint } from "@shared/music/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { CURSOR } from "../cursors";
 import { type CurveBox, curveTick, curveValueAt, draggedTension, hitCurve } from "../automation/curve-geometry";
 import { useMusic } from "../store";
 import { snapTick, snapValue, stepCell } from "./geometry";
@@ -42,7 +43,7 @@ const commit = (t: PanelTarget, change: (points: AutomationPoint[]) => Automatio
 export function panelCursor(t: PanelTarget, x: number, y: number): string {
   if (t.view.freeze) return "not-allowed";
   const hit = hitCurve(t.points, t.box, x, y);
-  return !hit ? "crosshair" : hit.kind === "point" ? "default" : "ns-resize";
+  return !hit ? CURSOR.addPoint : hit.kind === "point" ? CURSOR.grabPoint : CURSOR.tension;
 }
 
 /** A press on the panel, at `x`, `y` px inside it. */
@@ -63,7 +64,7 @@ export function panelPointerDown(e: ReactPointerEvent<HTMLElement>, element: HTM
     startPointerDrag(e, {
       button,
       threshold: button === 2 ? 0 : 2,
-      cursor: "default",
+      cursor: CURSOR.grabPoint,
       onMove(ev) {
         const q = local(ev);
         const tick = ev.ctrlKey || ev.metaKey ? from.tick : tickAt(q.x, ev.altKey);
@@ -104,7 +105,7 @@ export function panelPointerDown(e: ReactPointerEvent<HTMLElement>, element: HTM
     const start = points[hit.index].tension;
     startPointerDrag(e, {
       threshold: 1,
-      cursor: "ns-resize",
+      cursor: CURSOR.tension,
       onMove(ev) {
         show(t, updatePoint(points, hit.index, { tension: draggedTension(points, hit.index, start, y - local(ev).y, ev.ctrlKey || ev.metaKey) }));
       },
@@ -129,7 +130,7 @@ export function panelPointerDown(e: ReactPointerEvent<HTMLElement>, element: HTM
   paint(x, y, e.shiftKey);
   startPointerDrag(e, {
     threshold: 0,
-    cursor: "crosshair",
+    cursor: CURSOR.addPoint,
     onMove(ev) {
       const q = local(ev);
       paint(q.x, q.y, ev.shiftKey);

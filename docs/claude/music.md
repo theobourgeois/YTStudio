@@ -104,7 +104,7 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   ticks then count from the loop's start: `patternTickNow`), and a ruler click is where play starts
   (`play { from }`; sent while playing, the engine goes there at once). Its look is FL's, in colours of its own
   for each theme (`readPalette`): don't take the page's theme colours for the grid or the notes. Each tool has its
-  pointer (`cursors.ts`, picked by `gridCursor`; a drag sets the canvas's own while it lasts), and deleted notes
+  pointer (picked by `gridCursor`; a drag sets the canvas's own while it lasts), and deleted notes
   fade out (`fades.ts`: call `fadeOut` wherever notes are deleted). The song's `scale` (`shared/music/scales.ts`)
   lights its rows and snaps notes drawn, stamped and moved (Alt: not); the Stamp places its chords, and the
   Quantizer (Alt+Q, `quantizeWith`) is previewed live as the Chopper is (both through the engine's song too).
@@ -131,6 +131,12 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
 - **Mouse conventions** (FL's, and the ones to keep in every panel): the left button adds or turns on, the right
   button removes or turns off, and both paint when dragged (`startPointerDrag` takes `button: 2`). A control's
   right-click is its menu. Knobs are `Knob`/`SongKnob`, number displays `Lcd`: don't hand-roll either.
+- **Pointers are FL Studio's own** (`src/suites/music/cursors.ts`): read at runtime out of the FL Studio installed
+  on this computer (`server/music/fl-cursors.ts` decodes the cursor resources in `FLEngine_x64.dll`;
+  `EDITOR_FL_STUDIO` names another install, or `none`), never committed, since they're Image-Line's. Each is a CSS
+  variable with our own as its fallback (no FL Studio, a Mac), so set a pointer as `CURSOR.<role>`, never a plain
+  keyword; the plain `cursor-*` classes become FL's too while the editor is open (`flCursorCss`). Which of FL's
+  resources each role is: `shared/music/cursors.ts`. e2e runs without them (`EDITOR_FL_STUDIO=none`).
 - What a menu item and its shortcut do lives once, in `rack-actions.ts`; keys are resolved in `keys.ts` (pure,
   tested) and run in `workspace.tsx`.
 - **Keyboard-first**: everything the mouse does, the keyboard does too, and the keys are learnt from where

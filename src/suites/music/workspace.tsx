@@ -97,6 +97,7 @@ import { useVerbUi } from "./reverb/store";
 import { PanManWindow } from "./panman/panman-window";
 import { usePanUi } from "./panman/store";
 import { AutomationChooser } from "./automation/chooser";
+import { useFlCursors } from "./cursors";
 import { useAutomationUi } from "./automation/store";
 import { VocalMixDialog } from "./vocal-mix/dialog";
 import { type MusicEdit, MusicMenus } from "./menus";
@@ -110,6 +111,8 @@ export default function MusicWorkspace() {
   // The engine plays the open song for as long as it's open.
   useEffect(() => (projectId && loaded ? startEngineSync({ onKey: runPluginWindowKey }) : undefined), [projectId, loaded]);
   useMusicKeys(loaded);
+  // FL Studio's own pointers, while the editor is open.
+  useFlCursors();
   useNoPageZoom(loaded);
 
   if (!projectId || !loaded) {

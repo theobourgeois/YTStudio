@@ -15,6 +15,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { Input } from "@/components/ui/input";
 import { PopoverContent } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { CURSOR } from "../cursors";
 import { AutomationMenuItems, useAutomatedControl } from "../automation/control";
 import { songGesture, useMusic } from "../store";
 import { useWheelValue } from "../wheel";
@@ -139,7 +140,7 @@ function ControlShell({ value, defaultValue, label, format, parse, typed, disabl
                 let last = own;
                 startPointerDrag(e, {
                   threshold: 1,
-                  cursor: axis === "vertical" ? "ns-resize" : "ew-resize",
+                  cursor: axis === "vertical" ? CURSOR.moveV : CURSOR.moveH,
                   onStart() {
                     setDragging(true);
                     onBegin(alt);
@@ -310,7 +311,7 @@ export function CompKnob({ size = 64, bipolar, ring, pan, dots, caption, ...cont
       const start = pan.value;
       startPointerDrag(e, {
         threshold: 1,
-        cursor: "ns-resize",
+        cursor: CURSOR.moveV,
         onStart: pan.onBegin,
         onMove: (ev) => pan.onDrag(draggedPan(start, startY - ev.clientY, ev.shiftKey)),
         onEnd: pan.onEnd,

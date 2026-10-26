@@ -4,6 +4,7 @@ import { Popover as PopoverPrimitive } from "radix-ui";
 import { create } from "zustand";
 import { clamp } from "@shared/math";
 import type { AutomationTarget, MusicProject } from "@shared/music/types";
+import { CURSOR } from "./cursors";
 import { AutomationMenuItems, useAutomatedControl } from "./automation/control";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
@@ -163,7 +164,7 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
                 let lastY = 0;
                 startPointerDrag(e, {
                   threshold: 2,
-                  cursor: "ns-resize",
+                  cursor: CURSOR.moveV,
                   lock: true,
                   onStart() {
                     setDragging((element.current?.getBoundingClientRect().top ?? 100) < VALUE_ROOM ? "below" : "above");

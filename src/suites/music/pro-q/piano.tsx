@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { nearestNote, updateBands, editProQ } from "@shared/music/pro-q";
 import type { ProQ } from "@shared/music/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { CURSOR } from "../cursors";
 import { songGesture } from "../store";
 import { editEq } from "./actions";
 import { bandColour } from "./draw";
@@ -56,7 +57,7 @@ export function Piano({ effectId, pq, view, bottom }: { effectId: string; pq: Pr
             const gesture = songGesture();
             startPointerDrag(e, {
               threshold: 2,
-              cursor: "ew-resize",
+              cursor: CURSOR.moveH,
               onStart: () => gesture.begin(),
               onMove: (ev) => {
                 const rect = e.currentTarget.parentElement!.getBoundingClientRect();

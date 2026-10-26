@@ -35,6 +35,7 @@ import { Slider } from "@/components/ui/slider";
 import { droppedPath, isDesktop } from "@/lib/desktop";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { FILE_MANAGER, IS_MAC, keyLabel } from "@/lib/key-labels";
+import { CURSOR } from "../cursors";
 import { useTransport } from "../transport";
 import { openInNewChannels, samplerToSendTo, sendToSelectedChannel, showInFinder, togglePreview } from "./actions";
 import { BROWSER_DRAG_TYPE, type BrowserDrag, setCarriedPaths } from "./drops";
@@ -796,7 +797,7 @@ function WidthHandle() {
     const start = useBrowser.getState().width;
     startPointerDrag(e, {
       threshold: 0,
-      cursor: "ew-resize",
+      cursor: CURSOR.columnSplit,
       onMove: (ev) => useBrowser.getState().setWidth(start + ev.clientX - e.clientX),
       onCancel: () => useBrowser.getState().setWidth(start),
     });

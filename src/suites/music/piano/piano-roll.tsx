@@ -36,7 +36,7 @@ import { type Scene, drawGrid, drawHandle, drawKeys, drawLane, drawRuler, prepar
 import { onFade, vanishing } from "./fades";
 import { SNAPS, SNAP_LABELS, type Snap, hitNote, pitchToY, scrollViewBy, tickToX, zoomAt, zoomRowsAt } from "./geometry";
 import { gridCursor, gridPointerDown, keysPointerDown, lanePointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
-import { CURSORS } from "./cursors";
+import { CURSOR } from "../cursors";
 import { carriesSamples, dropAsChannels, dropOnChannel } from "../browser/drops";
 import { DEFAULT_LANE_HEIGHT, MIN_LANE_HEIGHT, MIN_NOTES_HEIGHT, type PianoTool, usePiano } from "./store";
 import { DeleteIcon, DrawIcon, MuteIcon, PaintIcon, PlaybackIcon, SelectIcon, SliceIcon } from "./tool-icons";
@@ -375,7 +375,7 @@ function PianoBody() {
   const laneHeight = usePiano((s) => s.laneHeight);
   const laneProperty = usePiano((s) => s.lane);
   // The event editor draws with the tool in hand: the pencil's, or else the brush (it paints values).
-  const laneCursor = usePiano((s) => (s.tool === "draw" ? CURSORS.pencil : CURSORS.brush));
+  const laneCursor = usePiano((s) => (s.tool === "draw" ? CURSOR.pen : CURSOR.brush));
 
   // Drawing: once a frame, when anything it shows has changed.
   useEffect(() => {

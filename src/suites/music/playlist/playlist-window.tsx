@@ -2,6 +2,7 @@ import { type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useR
 import { addWindowListener } from "@/lib/window-events";
 import { PiArrowLineRight, PiArrowsOutLineHorizontal, PiCaretDownBold, PiMagnet, PiMagnifyingGlass, PiSidebarSimple, PiStairs } from "react-icons/pi";
 import { cn } from "cn";
+import { CURSOR } from "../cursors";
 import { applyDrag, shownSelection } from "./drag";
 import { type ClipContext, clipLength, songTicks } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS } from "@shared/music/project";
@@ -1154,7 +1155,7 @@ function VerticalScrollbar() {
     e.stopPropagation();
     const origin = e.clientY;
     const start = view;
-    startPointerDrag(e, { threshold: 0, cursor: "ns-resize", onMove: (ev) => usePlaylist.getState().setView(trackZoomDrag(start, edge, ev.clientY - origin, thumb, height)) });
+    startPointerDrag(e, { threshold: 0, cursor: CURSOR.moveV, onMove: (ev) => usePlaylist.getState().setView(trackZoomDrag(start, edge, ev.clientY - origin, thumb, height)) });
   };
   return (
     <div className="relative border-l border-line bg-sunken" aria-label="Scroll up and down the tracks">

@@ -1,6 +1,7 @@
 import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef } from "react";
 import { clipContext, songTicks } from "@shared/music/playlist";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { CURSOR } from "../cursors";
 import { prepare } from "../piano/draw";
 import { useClipLook } from "./clip-look";
 import { useMusic } from "../store";
@@ -51,7 +52,7 @@ export function PlaylistOverview() {
     const min = zoomFloor();
     startPointerDrag(e, {
       threshold: 0,
-      cursor: part === "move" ? "grabbing" : "ew-resize",
+      cursor: part === "move" ? CURSOR.handDrag : CURSOR.moveH,
       onMove: (ev) => usePlaylist.getState().setView(overviewDrag(start, part, ev.clientX - origin, width, span, min)),
     });
   };

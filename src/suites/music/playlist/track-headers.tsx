@@ -1,4 +1,5 @@
 import { memo, useRef } from "react";
+import { CURSOR } from "../cursors";
 import { NameColorEditor } from "../name-color-editor";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
@@ -264,7 +265,7 @@ function SizeDivider({ index, size, height }: { index: number; size: number; hei
         const gesture = songGesture();
         startPointerDrag(e, {
           threshold: 1,
-          cursor: "row-resize",
+          cursor: CURSOR.rowSplit,
           onStart: () => gesture.begin(),
           onMove: (ev) => gesture.apply((song) => updateTrack(song, index, { size: clamp(size + (ev.clientY - origin) * perPx, MIN_TRACK_SIZE, MAX_TRACK_SIZE) })),
           onEnd: () => gesture.end(),

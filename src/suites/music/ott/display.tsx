@@ -13,6 +13,7 @@ import { OTT_BAND_GAIN_RANGE } from "@shared/music/ott-presets";
 import type { AutomationTarget, MusicProject, Ott } from "@shared/music/types";
 import { ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { CURSOR } from "../cursors";
 import { AutomationMenuItems } from "../automation/control";
 import { useAutomationUi } from "../automation/store";
 import { prepare } from "../piano/draw";
@@ -137,7 +138,7 @@ function BandRow({ effectId, ott, band, row }: { effectId: string; ott: Ott; ban
             const automation = useAutomationUi.getState();
             startPointerDrag(e, {
               threshold: 2,
-              cursor: "ew-resize",
+              cursor: CURSOR.moveH,
               onStart() {
                 automation.hold(targetKey(target));
                 automation.touch(target);

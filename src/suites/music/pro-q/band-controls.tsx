@@ -7,6 +7,7 @@ import { EQ_CONTROL_SCALES, EQ_MAX_GAIN, EQ_MAX_Q, EQ_MIN_Q, EQ_MIN_THRESHOLD, c
 import { EQ_PLACEMENTS, EQ_SHAPES, type EqBand, type EqSlope, type MusicProject, type ProQ } from "@shared/music/types";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { CURSOR } from "../cursors";
 import { songGesture } from "../store";
 import { useTransport } from "../transport";
 import { clearBandsDynamics, deleteBands, editEq, splitSelected, stepBand } from "./actions";
@@ -305,7 +306,7 @@ function ThresholdSlider({ effectId, ids, threshold, level }: { effectId: string
         const from = threshold;
         startPointerDrag(e, {
           threshold: 0,
-          cursor: "ns-resize",
+          cursor: CURSOR.moveV,
           onStart: () => gesture.begin(),
           onMove: (ev) => {
             const db = clamp(Math.round((from + ((startY - ev.clientY) / HEIGHT) * -EQ_MIN_THRESHOLD * (ev.shiftKey ? 0.1 : 1)) * 10) / 10, EQ_MIN_THRESHOLD, 0);

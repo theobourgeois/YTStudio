@@ -59,7 +59,7 @@ so there's nothing to copy. Check it as carefully as dark.
   `components/header/theme-menu.tsx` is the menu.
 - Components use the Tailwind tokens. Only a few files hard-code colours: `assistant/edits.ts`,
   `components/assistant/provider-icon.tsx`, `components/captions/caption-sample.tsx`,
-  `components/properties/text-controls.tsx`, and the Piano roll (`piano/draw.ts`, `piano/cursors.ts`).
+  `components/properties/text-controls.tsx`, and the Piano roll (`piano/draw.ts`, `cursors.ts`).
   Check each: some are content (a caption's sample colours) and should stay.
 - Canvases draw with colours of their own and don't follow the CSS: the Piano roll (`piano/draw.ts`
   `readPalette`, one palette per theme), the timeline's clip strips (`components/timeline/clip-media.tsx`),
