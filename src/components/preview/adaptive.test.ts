@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ADAPTIVE_LEVELS, FRAME_BUDGET_MS, adaptiveLevel, nextAdaptiveLevel } from "./adaptive";
+import { ADAPTIVE_LEVELS, FRAME_BUDGET_MS, LIVE_FRAME_BUDGET_MS, adaptiveLevel, nextAdaptiveLevel } from "./adaptive";
 
 describe("adaptive resolution", () => {
   it("draws in full what fits the budget, and the fewest pixels it has for the heaviest", () => {
@@ -32,5 +32,11 @@ describe("adaptive resolution", () => {
       expect(nextAdaptiveLevel(level, level, cost)).toBe(up);
       expect(cost * (up / level) ** 2).toBeLessThanOrEqual(FRAME_BUDGET_MS);
     }
+  });
+
+  it("holds a live picture to its own, tighter budget", () => {
+    // 20 ms in full is fine while editing, but not for a visualizer due every 60th of a second.
+    expect(nextAdaptiveLevel(1, 1, 20)).toBe(1);
+    expect(nextAdaptiveLevel(1, 1, 20, LIVE_FRAME_BUDGET_MS)).toBe(0.5);
   });
 });

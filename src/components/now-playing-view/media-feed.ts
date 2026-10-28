@@ -15,7 +15,7 @@ import type { ButterchurnRenderer } from "butterchurn";
 import { errorMessage } from "@shared/errors";
 import { log } from "@/lib/log";
 import type { ModelShow, ModelStage } from "./model-stage";
-import { type Backdrop, type MediaMix, PALE, amountOver, backdropOf, floatSize, placementOf, shownAt } from "./media-mix";
+import { type Backdrop, type MediaMix, PALE, type Seat, amountOver, backdropOf, floatSize, placementOf, shownAt } from "./media-mix";
 
 const VERTEX = `#version 300 es
 in vec2 corner;
@@ -39,6 +39,7 @@ uniform sampler2D media;
 uniform int place;
 uniform vec2 fit;
 uniform vec2 size;
+uniform vec2 centre;
 uniform vec2 texel;
 uniform float amount;
 uniform int mode;
@@ -62,11 +63,11 @@ void main() {
   float inside = 1.0;
   if (place == 0) p = (uv - 0.5) * fit + 0.5;
   else {
-    p = (uv - 0.5) / size + 0.5;
+    p = (uv - 0.5 - centre) / size + 0.5;
     float e = min(min(p.x, 1.0 - p.x), min(p.y, 1.0 - p.y));
-    // Its background taken out, its edge only softened (what's left is the subject); else it fades out from the middle
-    // as an ellipse, so it reads as a glow, not a box.
-    inside = keyed == 1 ? smoothstep(0.0, 0.06, e) : boxed == 1 ? smoothstep(0.0, 0.004, e) : (1.0 - smoothstep(0.55, 1.0, length((p - 0.5) * 2.0))) * smoothstep(0.0, 0.02, e);
+    // Its background taken out (or a model's stage: only the model shows), its edge only softened (what's left is the
+    // subject); else it fades out from the middle as an ellipse, so it reads as a glow, not a box.
+    inside = keyed == 1 || cutout == 1 ? smoothstep(0.0, 0.06, e) : boxed == 1 ? smoothstep(0.0, 0.004, e) : (1.0 - smoothstep(0.55, 1.0, length((p - 0.5) * 2.0))) * smoothstep(0.0, 0.02, e);
   }
   if (inside <= 0.0) {
     color = vec4(0.0);
@@ -150,7 +151,9 @@ export class Brake {
 }
 
 /** A model's stage is drawn this much smaller than the look (three.js draws it every frame). */
-const MODEL_SCALE = 0.75;
+export const MODEL_SCALE = 0.75;
+/** A model in a seat floats on its stage this much bigger than the seat (the stage keeps a margin about the model). */
+const SEATED_MODEL = 1.35;
 
 const logger = log("now-playing");
 
@@ -198,6 +201,8 @@ export class MediaFeed {
   constructor(
     private readonly gl: WebGL2RenderingContext,
     private readonly brake = new Brake(),
+    /** Its model's stage, of the look's size (a feed that only ever shows one of several draws it smaller). */
+    private readonly modelScale = MODEL_SCALE,
   ) {}
 
   /**
@@ -219,7 +224,7 @@ export class MediaFeed {
     if (media.kind === "model") {
       // Drawn by its stage: fed once it's up (nothing until then).
       const { width, height } = this.gl.canvas;
-      this.stage ??= import("./model-stage").then((m) => (this.stageNow = new m.ModelStage(Math.round(width * MODEL_SCALE), Math.round(height * MODEL_SCALE))));
+      this.stage ??= import("./model-stage").then((m) => (this.stageNow = new m.ModelStage(Math.round(width * this.modelScale), Math.round(height * this.modelScale))));
       void this.stage
         .then(async (stage) => {
           await stage.load(media.src, media.animations, media.show);
@@ -285,9 +290,10 @@ export class MediaFeed {
   /**
    * The clip into the frame Butterchurn just drew (its next frame warps it in) and on top of what it showed, as `mix`
    * says for `hit` into a kick over `seconds`; less of both while the picture (`canvas`: given to one feed of a picture's)
-   * is turning white or pale, and `fade` of it (0..1: a clip coming in over a screen). Whether it did.
+   * is turning white or pale, and `fade` of it (0..1: a clip coming in over a screen), in `seat` (one of several shown
+   * together, floating in its own part of the frame). Whether it did.
    */
-  feed(renderer: ButterchurnRenderer, mix: MediaMix, hit: number, seconds: number, canvas?: HTMLCanvasElement, fade = 1): boolean {
+  feed(renderer: ButterchurnRenderer, mix: MediaMix, hit: number, seconds: number, canvas?: HTMLCanvasElement, fade = 1, seat: Seat | null = null): boolean {
     if (canvas && this.frames % MEASURE_EVERY === 0) this.brake.measure(canvas);
     // (Away: it keeps playing, ready to come in, but nothing's painted.)
     if (fade <= 0) return false;
@@ -309,14 +315,18 @@ export class MediaFeed {
     const keyed = fed.backdrop?.flat ?? false;
     // A screen floats at its own shape, all of it (a 16:9 one fills the frame): its edges are where its picture is.
     // A model's stage is the frame's shape (it's placed in it, and punched in, by its stage).
-    const place = fed.live ? "float" : fed.model ? "fill" : placementOf(mediaAspect, frameAspect);
+    // One of several floats in its seat, whatever its shape.
+    const seated = !!seat && seat.scale < 1 && !fed.live;
+    const place = fed.live || seated ? "float" : fed.model ? "fill" : placementOf(mediaAspect, frameAspect);
     // Punched in a little on each kick.
     const punch = fed.model ? 1 : 1 + 0.06 * Math.max(0, Math.min(1, hit));
     // Filling the frame, kept to its shape: the wider of the two shows less of its width.
     const fit = mediaAspect > frameAspect ? [frameAspect / mediaAspect, 1] : [1, mediaAspect / frameAspect];
     const zoom = fed.model ? 1 : Math.max(1, mix.zoom) * punch;
     const contain = mediaAspect > frameAspect ? [1, frameAspect / mediaAspect] : [mediaAspect / frameAspect, 1];
-    const size = (fed.live ? contain : floatSize(mediaAspect, frameAspect, mix.size)).map((v) => v * punch);
+    const size = (
+      seated ? contain.map((v) => v * seat.scale * (fed.model ? SEATED_MODEL : 1)) : fed.live ? contain : floatSize(mediaAspect, frameAspect, mix.size)
+    ).map((v) => v * punch);
     // On a background taken out, its light is all of it (what's left is the subject). On top, footage shows only its
     // light or its edges: the look shows through its darks (all of it on top would hide the look).
     // A pale clip whose background can't be taken out washes the look out: only its outlines.
@@ -339,6 +349,7 @@ export class MediaFeed {
     gl.uniform1i(this.uniforms.place, place === "fill" ? 0 : 1);
     gl.uniform2f(this.uniforms.fit, fit[0] / zoom, fit[1] / zoom);
     gl.uniform2f(this.uniforms.size, size[0], size[1]);
+    gl.uniform2f(this.uniforms.centre, seated ? seat.x : 0, seated ? seat.y : 0);
     gl.uniform1i(this.uniforms.keyed, keyed ? 1 : 0);
     gl.uniform1i(this.uniforms.boxed, fed.live ? 1 : 0);
     gl.uniform1i(this.uniforms.cutout, fed.model ? 1 : 0);
@@ -441,7 +452,7 @@ export class MediaFeed {
       gl.linkProgram(program);
       if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) ?? "program");
       this.program = program;
-      for (const name of ["media", "place", "fit", "size", "texel", "amount", "mode", "key", "keyed", "boxed", "cutout", "bg", "saturation", "bright"]) this.uniforms[name] = gl.getUniformLocation(program, name);
+      for (const name of ["media", "place", "fit", "size", "centre", "texel", "amount", "mode", "key", "keyed", "boxed", "cutout", "bg", "saturation", "bright"]) this.uniforms[name] = gl.getUniformLocation(program, name);
       // Its own vertex array: Butterchurn's attributes are left alone.
       this.vao = gl.createVertexArray();
       gl.bindVertexArray(this.vao);

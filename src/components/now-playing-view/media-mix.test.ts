@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { seededRandom } from "@shared/live-looks";
-import { FLAT_SHARE, KickHit, PALE, STILL_FLAT, type MediaMode, amountOver, backdropOf, floatSize, mixFor, nextVisit, pickMedia, placementOf, shownAt, visitFade } from "./media-mix";
+import { FLAT_SHARE, KickHit, PALE, STILL_FLAT, type MediaMode, amountOver, backdropOf, floatSize, mixFor, nextVisit, pickMedia, pickSeveral, placementOf, seatsFor, shownAt, togetherFor, visitFade } from "./media-mix";
 
 const modes = (intensity: number, slow = 0) => {
   const random = seededRandom(`modes${intensity}${slow}`);
@@ -181,5 +181,50 @@ describe("the clips over a screen shared", () => {
     expect(visitFade(v, 15)).toBe(1);
     expect(visitFade(v, 19.9)).toBeLessThan(1);
     expect(visitFade(v, 21)).toBe(0);
+  });
+});
+
+describe("several at once", () => {
+  const LOOKS = Array.from({ length: 200 }, (_, i) => `md-look-${i}`);
+
+  it("is each look's own way: some show one, some two, some three", () => {
+    const most = LOOKS.map((look) => togetherFor(look, 10, 1, () => 0));
+    expect(new Set(most)).toEqual(new Set([1, 2, 3]));
+    const ones = most.filter((n) => n === 1).length / most.length;
+    expect(ones).toBeGreaterThan(0.3);
+    expect(ones).toBeLessThan(0.6);
+    // The same look leans the same way every time.
+    expect(LOOKS.map((look) => togetherFor(look, 10, 1, () => 0))).toEqual(most);
+  });
+
+  it("never shows more than there are, and fewer more often when it's calm", () => {
+    for (const look of LOOKS) expect(togetherFor(look, 1, 1, Math.random)).toBe(1);
+    for (const look of LOOKS) expect(togetherFor(look, 2, 1, Math.random)).toBeLessThanOrEqual(2);
+    const count = (intensity: number) => {
+      const random = seededRandom("calm");
+      return LOOKS.reduce((sum, look) => sum + togetherFor(look, 10, intensity, random), 0);
+    };
+    expect(count(1)).toBeGreaterThan(count(0));
+  });
+
+  it("seats them side by side in the frame, smaller, not overlapping", () => {
+    expect(seatsFor(1, Math.random)).toEqual([{ x: 0, y: 0, scale: 1 }]);
+    for (const n of [2, 3]) {
+      const seats = seatsFor(n, Math.random);
+      expect(seats).toHaveLength(n);
+      for (let i = 1; i < n; i++) expect(seats[i].x - seats[i - 1].x).toBeGreaterThan(seats[i].scale);
+      for (const seat of seats) {
+        expect(Math.abs(seat.x) + seat.scale / 2).toBeLessThan(0.5);
+        expect(seat.scale).toBeLessThan(1);
+      }
+    }
+  });
+
+  it("picks different ones", () => {
+    const media = ["a", "b", "c"].map((id) => ({ id, kind: "image" as const, duration: 0 }));
+    const picked = pickSeveral(media, [], 3, seededRandom("three")).map((p) => p.id);
+    expect(new Set(picked).size).toBe(3);
+    expect(pickSeveral(media, [], 5, Math.random)).toHaveLength(3);
+    expect(pickSeveral([], [], 2, Math.random)).toEqual([]);
   });
 });

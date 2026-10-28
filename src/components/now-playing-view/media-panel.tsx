@@ -277,7 +277,7 @@ function kindOf(asset: MediaAsset): { icon: React.ReactNode; label: string } {
 
 /** One of the set's sources: its picture, its name, what it is (a model's credit), on screen or not; moved, taken out. */
 function SourceRow({ asset, canMove, onMove, onRemove }: { asset: MediaAsset; canMove: boolean; onMove: () => void; onRemove: () => void }) {
-  const feeding = useVisualizerMedia((s) => s.feeding === asset.id);
+  const feeding = useVisualizerMedia((s) => s.feeding.includes(asset.id));
   const picture = asset.poster ?? (asset.kind === "image" ? asset.src : null);
   const kind = kindOf(asset);
   const credit = asset.model?.credit;
@@ -400,6 +400,7 @@ function Models() {
   // Searched again once a key's saved.
   const [generation, setGeneration] = useState(0);
   const sets = useVisualizerMedia((s) => s.sets);
+  const media = useVisualizerMedia((s) => s.media);
   const adding = useVisualizerMedia((s) => s.modelsAdding);
   const starter = useVisualizerMedia((s) => s.starter);
   const input = useRef<HTMLInputElement>(null);
@@ -409,8 +410,9 @@ function Models() {
   }, []);
   const site = status?.sources.find((s) => s.source === source);
   const search = useModelSearch(site?.searchable === false ? "" : query, source, animated, generation);
-  // What's in any set already (by where it came from).
+  // What's in any set already (by where it came from: the starter pack's left to add), and in the one in use (its item).
   const have = useMemo(() => new Set(sets.flatMap((s) => s.media.map((m) => m.asset.origin))), [sets]);
+  const here = useMemo(() => new Map(media.map((m) => [m.asset.origin, m.itemId])), [media]);
   const results = search.status === "loading" || search.status === "done" ? search.results : [];
   const end = useEndOfList(search.loadMore, search.status === "done" && search.more && !search.loadingMore && !search.moreError, results.length);
   const needsKey = site && (!site.searchable || !site.downloadable);
@@ -418,7 +420,16 @@ function Models() {
   const starterLeft = STARTER_MODELS.filter((m) => !have.has(modelOrigin(m.source, m.id))).length;
   const card = (result: ModelResult) => {
     const origin = modelOrigin(result.source, result.id);
-    return <ModelCard key={origin} result={result} adding={!!adding[origin]} added={have.has(origin)} onAdd={() => void useVisualizerMedia.getState().addModel(result)} />;
+    const itemId = here.get(origin);
+    return (
+      <ModelCard
+        key={origin}
+        result={result}
+        adding={!!adding[origin]}
+        added={!!itemId}
+        onClick={() => (itemId ? void useVisualizerMedia.getState().remove(itemId) : void useVisualizerMedia.getState().addModel(result))}
+      />
+    );
   };
   return (
     <>
@@ -542,20 +553,24 @@ function Models() {
   );
 }
 
-/** One model to add: its picture, whether it moves, who made it; + puts it in the set in use. */
-function ModelCard({ result, adding, added, onAdd }: { result: ModelResult; adding: boolean; added: boolean; onAdd: () => void }) {
+/**
+ * One model: its picture, whether it moves, who made it. + puts it in the set in use; one in it already has a tick,
+ * which turns into a cross on hover: clicked, it's taken out of the set (another set's are added again: a model can be in several).
+ */
+function ModelCard({ result, adding, added, onClick }: { result: ModelResult; adding: boolean; added: boolean; onClick: () => void }) {
   const [broken, setBroken] = useState(false);
-  const label = adding ? `Adding ${result.title}…` : added ? `${result.title}: in the visualizer` : `Add ${result.title}`;
+  const label = adding ? `Adding ${result.title}…` : added ? `${result.title}: in this set (click to take it out)` : `Add ${result.title}`;
   return (
     <li data-model={modelOrigin(result.source, result.id)} className="group relative min-w-0">
       <button
         type="button"
         aria-label={label}
-        title={`${result.title} by ${result.author} (${result.licence})${added ? ": in the visualizer" : ""}`}
-        disabled={adding || added}
-        onClick={onAdd}
+        aria-pressed={added}
+        title={`${result.title} by ${result.author} (${result.licence})${added ? ": in this set, click to take it out" : ""}`}
+        disabled={adding}
+        onClick={onClick}
         className={cn(
-          "block w-full overflow-hidden rounded-lg bg-[radial-gradient(circle_at_50%_38%,rgba(255,255,255,0.2),rgba(255,255,255,0.03)_72%)] text-left ring-1 transition hover:ring-white/50 disabled:cursor-default",
+          "group/card block w-full overflow-hidden rounded-lg bg-[radial-gradient(circle_at_50%_38%,rgba(255,255,255,0.2),rgba(255,255,255,0.03)_72%)] text-left ring-1 transition hover:ring-white/50 disabled:cursor-default",
           added ? "ring-white/60" : "ring-white/10",
         )}
       >
@@ -584,10 +599,19 @@ function ModelCard({ result, adding, added, onAdd }: { result: ModelResult; addi
           <span
             className={cn(
               "absolute right-1 bottom-1 grid size-6 place-items-center rounded-full shadow-lg [&_svg]:size-3.5",
-              added ? "bg-white text-black" : adding ? "bg-black/70 text-white" : "bg-black/70 text-white opacity-0 group-hover:opacity-100",
+              added ? "bg-white text-black group-hover/card:bg-red-500 group-hover/card:text-white" : adding ? "bg-black/70 text-white" : "bg-black/70 text-white opacity-0 group-hover:opacity-100",
             )}
           >
-            {adding ? <PiSpinnerGap className="animate-spin" /> : added ? <PiCheck /> : <PiPlus />}
+            {adding ? (
+              <PiSpinnerGap className="animate-spin" />
+            ) : added ? (
+              <>
+                <PiCheck className="group-hover/card:hidden" />
+                <PiX className="hidden group-hover/card:block" />
+              </>
+            ) : (
+              <PiPlus />
+            )}
           </span>
         </span>
         <span className="block px-1.5 pt-1 pb-1.5">

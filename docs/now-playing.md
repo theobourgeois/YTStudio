@@ -119,6 +119,27 @@ F full screen, P the mini player, O its own window, H hide the controls, S tap a
 ? the list, Esc close. They're the visualizer's alone while it fills the app (caught before the editor's); in a box
 over the app, once it's been clicked (until something else is); out of the app, in its own window.
 
+### Speed
+
+Théo, 2026-10-28, on an RTX 5070: "the longer it goes on, the laggier it gets… it's still lagging pretty hard".
+Measured with `scripts/now-playing-perf.ts` (each look in turn at the display's frame rate, `--soak <minutes>` for
+hours of looks changing; never without vsync: Chromium then draws as fast as it can and every number lies).
+
+- **The leak**: Butterchurn compiles a preset's warp and comp shaders into new programs as it loads it and never
+  deletes the ones they replace, so every preset change left two programs in the GPU process (Programs 99 → 276,
+  Shaders 138 → 434 and 35 → 19 frames a second in 5½ minutes). `freeReplacedShaders` (`milkdrop.ts`) wraps its shaders'
+  `updateShader` to delete the program they had first.
+- **Heavy worlds**: the 3D scenes that march (nebula, cosmic web, galaxy, abyss, collider, ridgeline) take a `quality`
+  (0.25..1, fewer steps: they read the same), and the live engine holds itself to its own budget (`lowLatency`:
+  `LIVE_FRAME_BUDGET_MS`, 11 ms of a 60 Hz frame, the CPU's work being the rest) by adaptive resolution. Every look
+  is `stateful` (the perform layer's World Loop keeps frames), which had kept them all at full size (nebula 29 frames
+  a second at 1080p, cosmic web 22): live, a stateful picture adapts too, by 30 frames' average (a level change starts
+  its trails afresh, so never on one frame's spike). All of them hold 58–60 now (nebula at half its pixels).
+- **The signals**: the live reader's store is new every frame, so the per-store cache of a link's follower (`Series`)
+  was thrown away and its warm-up recomputed every frame (18% of the page's time). Live, a follower is kept by session
+  and key (`LiveSeries`) and steps on from where it was, its newest few samples recomputed each read (they're still
+  arriving).
+
 ## Where it is
 
 Four places (`placement.ts`, kept in `useVisualizerPrefs.place`, so it opens where it was left): **filling the
@@ -507,6 +528,12 @@ shows only its outlines: all of it washes a look out.
 - **Keys**: N another clip, ⇧N on or off (kept: `useVisualizerPrefs.media`), K the next set. The assistant's
   `control_now_playing` takes `media` (on, off, next) and `mediaSet` (a set's name: it feeds from that one, turned on);
   `now_playing` lists the sets and the clips of the one in use, and says which is in.
+- **Several at once** (Théo, 2026-10-28: "sometimes… multiple at a time depending on the scene"): each MilkDrop look
+  leans its own way (`togetherFor`, by its id: about half show one, a third two, the rest three), one fewer more often
+  the calmer it is, never more than the set has, one at a time over a screen. Two sit side by side, three in a row
+  (`seatsFor`), each floating in its seat whatever its shape (a model on its stage a little bigger: it keeps a margin),
+  picked as one is (`pickSeveral`), the one just added first. `MilkDrop` has a feed for each (`MOST_TOGETHER`, one
+  `Brake`; the others' model stages half the look's size); `data-media` lists them, the panel marks each ON.
 - **Only MilkDrop's looks** take them for now (they're nearly all that shows since Théo's ratings: 153 of the looks,
   and most of ours binned). Ours could: the World Loop is a feedback too, and chaos's `cover` source is where a clip
   would go.
@@ -531,8 +558,8 @@ well… cycle through them"), a source like a clip: in sets, picked in turn, N f
   `.glb` download) with its picture, read without three.js
   (`shared/model-file.ts`: what it holds, its animations, triangles, the extensions it needs). Refused: over 40 MB, or
   Draco/Basis compression (the stage decodes only meshopt). Its credit (title, author, licence, page) goes with it
-  (`MediaAsset.model.credit`), shown on its row; one the Library has already (`origin` `model:<site>:<id>`) is moved
-  into the set rather than downloaded again. Kind `model`: the Library's only (the video editor doesn't take them).
+  (`MediaAsset.model.credit`), shown on its row; one the Library has already (`origin` `model:<site>:<id>`) is put
+  in the set too rather than downloaded again (an item of its own: a model can be in several sets). Kind `model`: the Library's only (the video editor doesn't take them).
 - **The starter pack** (`STARTER_MODELS`, `shared/model-search.ts`): 40 of Poly Pizza's, 25 that move (a robot, an
   astronaut, a fox, a shark, a dragon…) and 15 things (a donut, a coffee cup, a boombox, a vinyl, a UFO…), about 20 MB,
   downloaded into a set of its own (Starter pack) the first time the visualizer's media are read (`addStarter`, once:
@@ -547,6 +574,9 @@ well… cycle through them"), a source like a clip: in sets, picked in turn, N f
   colours most, **chrome** (reflecting the look's own frame) and **neon** (its wireframe in the cover's accent) more as
   it gets intense, and a **ring** of six for an object now and then. Mixed in as itself (`mixFor(..., "model")`): all
   of it most, its outlines more as it gets intense. The last six shown stay loaded.
+- **The cards** (Add › 3D models): + adds one to the set in use; one in it already has a tick, a cross on hover, and
+  clicked is taken out of the set (Théo found ticks that did nothing confusing: they meant "in some set"). One in
+  another set only is added like any other.
 - **The assistant**: `control_now_playing`'s `model` finds one by words (Poly Pizza, else Sketchfab; `modelAnimated`
   only those that move) and adds the best match to the set in use, shown next; "starter pack" adds the starter pack.
   `now_playing` lists them with the clips (3D model, animated).

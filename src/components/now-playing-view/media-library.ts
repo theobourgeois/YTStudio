@@ -30,9 +30,9 @@ interface VisualizerMediaState {
   loaded: boolean;
   /** Files being added (uploading). */
   adding: number;
-  /** The one melting into the MilkDrop look shown (its media id), if any. */
-  feeding: string | null;
-  setFeeding(id: string | null): void;
+  /** The ones melting into the MilkDrop look shown (their media ids): one most often, sometimes a few together. */
+  feeding: readonly string[];
+  setFeeding(ids: readonly string[]): void;
   /** One just added, to show next (its media id): the visualizer takes it at once, on a MilkDrop look. */
   wanted: string | null;
   setWanted(id: string | null): void;
@@ -74,6 +74,8 @@ export const LONG_VIDEO = 6 * 60;
 export const LONG_TAKES = 4 * 60;
 /** How often an online clip's download is asked how far it's got (ms). */
 const PROGRESS_MS = 600;
+/** Nothing fed (one list, so the store's value stays the same while it is). */
+const NONE_FED: readonly string[] = [];
 
 /** A file that looks like a clip, a picture or a 3D model (its type, else its name). */
 export const isVisual = (file: Pick<File, "type" | "name">) =>
@@ -120,7 +122,7 @@ export const useVisualizerMedia = create<VisualizerMediaState>((set, get) => {
       ...changed(s.sets, s.setId, (list, it) => (it.id === setId && !list.some((m) => m.itemId === media.itemId) ? [...list, media] : list)),
       ...(!quietly && { wanted: media.asset.id }),
     }));
-  /** A model downloaded into a set (the server has each only once: one it had is moved into this set). */
+  /** A model downloaded into a set (the server downloads each only once: one it has already is put in this set too). */
   const fetchModel = async (result: ModelResult, folder: string, quietly: boolean) => {
     const origin = modelOrigin(result.source, result.id);
     set((s) => ({ modelsAdding: { ...s.modelsAdding, [origin]: true } }));
@@ -145,9 +147,9 @@ export const useVisualizerMedia = create<VisualizerMediaState>((set, get) => {
     media: [],
     loaded: false,
     adding: 0,
-    feeding: null,
-    setFeeding(feeding) {
-      if (get().feeding !== feeding) set({ feeding });
+    feeding: NONE_FED,
+    setFeeding(ids) {
+      if (get().feeding.join(" ") !== ids.join(" ")) set({ feeding: ids.length ? ids : NONE_FED });
     },
     wanted: null,
     setWanted(wanted) {
