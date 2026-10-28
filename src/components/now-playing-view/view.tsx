@@ -58,7 +58,7 @@ import type { FedMedia } from "./media-feed";
 import { clipRole, modelLookFor } from "./model-motion";
 import { useVisualizerMedia } from "./media-library";
 import { nextSet } from "./media-sets";
-import { KickHit, type Visit, mixFor, nextVisit, pickMedia, visitFade } from "./media-mix";
+import { KickHit, type Visit, mixFor, nextVisit, pickSeveral, seatsFor, togetherFor, visitFade } from "./media-mix";
 import { MediaPanel, type MediaTab } from "./media-panel";
 import { SCREEN_MEDIA, useVisualizerScreen } from "./screen";
 import { desktopScreens } from "@/lib/desktop";
@@ -195,7 +195,7 @@ export default function NowPlayingView() {
     setRatingState(next);
   };
   // The user's clip melting into the MilkDrop look shown (`media-feed.ts`), and those shown lately; a kick's hit.
-  const feedingRef = useRef<{ look: string; feeding: Omit<Feeding, "hit"> } | null>(null);
+  const feedingRef = useRef<{ look: string; feedings: Omit<Feeding, "hit">[] } | null>(null);
   // A screen shared, under the clips in MilkDrop's looks; the clips' visits over it (now and then, a few bars each).
   const screenRef = useRef<{ look: string; feeding: Omit<Feeding, "hit"> } | null>(null);
   const visitRef = useRef<Visit | null>(null);
@@ -338,15 +338,16 @@ export default function NowPlayingView() {
   };
 
   /**
-   * The user's clip for the MilkDrop look `lookId` (`again`: another, even for the same look): not one shown lately, from
-   * a moment of it at random, going in as the moment says (`mixFor`). None for any other look, or with none, or off.
-   * Over a screen shared it comes and goes (`tick`'s visits).
+   * The user's clips for the MilkDrop look `lookId` (`again`: others, even for the same look): one, or a few side by side
+   * as the look leans and the moment's intensity says (`togetherFor`), not ones shown lately, each from a moment of it at
+   * random, going in as the moment says (`mixFor`). None for any other look, or with none, or off. Over a screen shared
+   * one at a time, coming and going (`tick`'s visits).
    */
   const clipFor = (lookId: string, again = false) => {
     const list = useVisualizerMedia.getState().media;
     if (!useVisualizerPrefs.getState().media || !list.length) {
       if (feedingRef.current) feedingRef.current = null;
-      useVisualizerMedia.getState().setFeeding(null);
+      useVisualizerMedia.getState().setFeeding([]);
       return;
     }
     // Not a MilkDrop look: none for it (the clip of the one going stays while that's on screen: `tick`).
@@ -356,16 +357,24 @@ export default function NowPlayingView() {
     // One just added comes first (from its start), else one not shown lately.
     const wanted = useVisualizerMedia.getState().wanted;
     if (wanted) useVisualizerMedia.getState().setWanted(null);
-    const picked = wanted && choices.some((c) => c.id === wanted) ? { id: wanted, from: 0 } : pickMedia(choices, recentMedia.current, Math.random);
-    const asset = list.find((m) => m.asset.id === picked?.id)?.asset;
-    if (!picked || !asset) return;
     const mood = useNowPlaying.getState().live?.signals.mood;
     const heard = mood ? asHeard(mood) : { intensity: 0.5, slow: latest.current.prefs.pace < 1 ? 1 : 0 };
-    const mix = mixFor(heard, Math.random, asset.kind === "model" ? "model" : "clip");
-    feedingRef.current = { look: lookId, feeding: { media: fedMedia(asset, picked.from, isSlow(heard) ? 0.2 : heard.intensity, latest.current.palette), mix } };
-    recentMedia.current = [...recentMedia.current.filter((id) => id !== asset.id), asset.id].slice(-4);
-    useVisualizerMedia.getState().setFeeding(asset.id);
-    logger.debug(`${asset.name} into ${liveLook(lookId)?.name ?? lookId}'s feedback (${mix.mode}, ${picked.from} s in)`);
+    const first = wanted && choices.some((c) => c.id === wanted) ? { id: wanted, from: 0 } : null;
+    const n = screenRef.current ? 1 : togetherFor(lookId, choices.length, isSlow(heard) ? 0 : heard.intensity, Math.random);
+    const picked = [...(first ? [first] : []), ...pickSeveral(choices.filter((c) => c.id !== first?.id), recentMedia.current, n - (first ? 1 : 0), Math.random)];
+    const seats = seatsFor(picked.length, Math.random);
+    const feedings: Omit<Feeding, "hit">[] = [];
+    for (const [i, one] of picked.entries()) {
+      const asset = list.find((m) => m.asset.id === one.id)?.asset;
+      if (!asset) continue;
+      const mix = mixFor(heard, Math.random, asset.kind === "model" ? "model" : "clip");
+      feedings.push({ media: fedMedia(asset, one.from, isSlow(heard) ? 0.2 : heard.intensity, latest.current.palette), mix, ...(picked.length > 1 ? { seat: seats[i] } : {}) });
+      recentMedia.current = [...recentMedia.current.filter((id) => id !== asset.id), asset.id].slice(-4);
+      logger.debug(`${asset.name} into ${liveLook(lookId)?.name ?? lookId}'s feedback (${mix.mode}, ${one.from} s in, ${i + 1} of ${picked.length})`);
+    }
+    if (!feedings.length) return;
+    feedingRef.current = { look: lookId, feedings };
+    useVisualizerMedia.getState().setFeeding(feedings.map((f) => f.media.id));
   };
 
   /** Whether the song is a slow one, or taken as one (its looks flow into each other). */
@@ -579,7 +588,7 @@ export default function NowPlayingView() {
       }
       fade = visitFade(visit, time);
     } else visitRef.current = null;
-    const fed: Feeding | null = clipShown && feedingRef.current ? { ...feedingRef.current.feeding, hit, fade } : null;
+    const fed: Feeding[] = clipShown && feedingRef.current ? feedingRef.current.feedings.map((f) => ({ ...f, hit, fade })) : [];
     milkdrop.current?.draw(time, seconds, shown, useNowPlaying.getState().live?.signals ?? null, paceShown.current, fed, screen ? { ...screen.feeding, hit } : null);
   }
 
@@ -682,7 +691,7 @@ export default function NowPlayingView() {
   // one for the look shown chosen again as they come and go or are turned on or off.
   useEffect(() => {
     void useVisualizerMedia.getState().load();
-    return () => useVisualizerMedia.getState().setFeeding(null);
+    return () => useVisualizerMedia.getState().setFeeding([]);
   }, []);
   const mediaList = useVisualizerMedia((s) => s.media);
   const wantedMedia = useVisualizerMedia((s) => s.wanted);
@@ -721,7 +730,7 @@ export default function NowPlayingView() {
     mediaChanged.current = { list: mediaList, on: mediaOn, next: nextMedia };
     const look = director.look;
     if (!look) return;
-    const gone = feedingRef.current && !mediaList.some((m) => m.asset.id === feedingRef.current!.feeding.media.id);
+    const gone = feedingRef.current?.feedings.some((f) => !mediaList.some((m) => m.asset.id === f.media.id));
     if (nextMedia !== was.next || mediaOn !== was.on || gone || wantedMedia || (!feedingRef.current && mediaList.length)) clipFor(look, true);
     // One asked for (N, one just added) over a screen shared comes in now, for a few bars, rather than in its turn.
     if (useVisualizerScreen.getState().shared && (nextMedia !== was.next || wantedMedia)) {

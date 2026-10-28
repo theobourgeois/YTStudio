@@ -22,7 +22,7 @@ import { useEditor } from "@/stores/editor";
 import { segmentsOf, useRenderFiles } from "@/stores/render-files";
 import { useFonts } from "@/stores/fonts";
 import { usePlayback } from "@/stores/playback";
-import { SETTLE_MS, nextAdaptiveLevel } from "./adaptive";
+import { LIVE_FRAME_BUDGET_MS, SETTLE_MS, nextAdaptiveLevel } from "./adaptive";
 import { ImageSlot, MediaSlot } from "./media-slot";
 import { placeOnCanvas } from "./placement";
 // Also has the user's shaders compiled before they're drawn (`provideShaderCheck`).
@@ -314,6 +314,9 @@ export class PreviewEngine {
   private waiting = false;
   private watchQueued = false;
   private lastFinished = 0;
+  /** Frames the GPU has drawn, and what the last few cost (ms): on the canvas every 30, for scripts/now-playing-perf.ts. */
+  private finishedFrames = 0;
+  private recentCost = 0;
   /** The adaptive level moving frames are drawn at, and when the picture last changed (see `FRAME_BUDGET_MS`). */
   private adaptive = 1;
   private movedAt = -Infinity;
@@ -864,7 +867,9 @@ export class PreviewEngine {
     const playing = this.source.get().playing;
     const now = performance.now();
     const moving = playing || now - this.movedAt < SETTLE_MS;
-    const level = this.adaptiveResolution && this.adaptiveOn && moving && !stateful && !rendered ? this.adaptive : 1;
+    // (A live picture's trails and simulations start afresh when its level changes, which it does seldom: see `finished`.)
+    const adaptable = !stateful || !!this.options.lowLatency;
+    const level = this.adaptiveResolution && this.adaptiveOn && moving && adaptable && !rendered ? this.adaptive : 1;
     if ((level < 1) !== this.draft) {
       this.draft = level < 1;
       this.reportStatus();
@@ -896,6 +901,7 @@ export class PreviewEngine {
     // A frame drawn at fewer pixels is drawn again in full once the picture holds still.
     if (level < 1 && !playing) this.settleLater();
     setData(canvas, "frame", level < 1 ? "draft" : "final");
+    setData(canvas, "level", String(level));
     setData(canvas, "source", rendered ? "render" : "live");
     const state = count.transitions ? "transition" : layers.length ? "clips" : "empty";
     if (canvas.dataset.drawn !== state) canvas.dataset.drawn = state;
@@ -1098,7 +1104,16 @@ export class PreviewEngine {
       cost = gl.getQueryParameter(query, gl.QUERY_RESULT) / 1e6;
     }
     this.forget(flight);
-    this.adaptive = nextAdaptiveLevel(this.adaptive, level, cost);
+    this.recentCost += cost;
+    if (!this.options.lowLatency) this.adaptive = nextAdaptiveLevel(this.adaptive, level, cost);
+    if (++this.finishedFrames % 30 !== 0) return;
+    // A live picture goes by 30 frames' average: a spike would start its trails afresh, twice.
+    if (this.options.lowLatency) this.adaptive = nextAdaptiveLevel(this.adaptive, level, this.recentCost / 30, LIVE_FRAME_BUDGET_MS);
+    if (this.canvas) {
+      setData(this.canvas, "drawnFrames", String(this.finishedFrames));
+      setData(this.canvas, "frameMs", (this.recentCost / 30).toFixed(1));
+    }
+    this.recentCost = 0;
   }
 
   /** Let go of a frame's fence and timer. */

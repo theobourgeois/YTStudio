@@ -10,7 +10,7 @@
  * percentile of a level reads 1), so a quiet song reacts as much as a loud one; Volume still counts.
  */
 import { ExpressionError, type SignalScope } from "./expressions.ts";
-import { TIME_REMAP, VOLUME, definitionOf, findEffect, hasLinks, hasMedia, isRemapped, provideLinks, provideSignalScopes, volumeAt } from "./effects.ts";
+import { TIME_REMAP, VOLUME, definitionOf, findEffect, hasLinks, hasMedia, isComputed, isRemapped, provideLinks, provideSignalScopes, volumeAt } from "./effects.ts";
 import { BEAT_SIGNALS, DEFAULT_HIT, depthOf, findSignal, follow, hitLevel, hitSpan, isHitSignal, shapeValue } from "./links.ts";
 import { intensityAt, intensitySeries } from "./signals/mood.ts";
 import { BAND_COUNT, DB_SCALARS, type Hit, ONSET_SCALARS, type OnsetName, SIGNAL_RATE, type ScalarName, type SignalData, byteDb } from "./signals/format.ts";
@@ -147,25 +147,49 @@ function tracksOf(view: Project, source: SignalSource): Track[] {
   return view.tracks;
 }
 
+/** Volumes of clips whose Volume never changes (clips are never changed in place, so a clip's is its own). */
+const steadyVolumes = new WeakMap<Clip, number>();
+
+/**
+ * A clip's gain at source time `s`. A visualizer asks for a few thousand moments a frame, so a steady
+ * Volume is worked out once rather than through its effect's values each time.
+ */
+function clipGain(clip: Clip, s: number): number {
+  const steady = steadyVolumes.get(clip);
+  if (steady !== undefined) return steady;
+  const gain = volumeAt(clip, s);
+  const effect = findEffect(clip, VOLUME.type);
+  if (!effect || (!(effect.keyframes && Object.keys(effect.keyframes).length) && !isComputed(effect))) steadyVolumes.set(clip, gain);
+  return gain;
+}
+
 /** What sounds in `view` at timeline time `t` for `source` (into `out`), each at `gain` times its own. */
 function soundsAt(reader: SignalReader, view: Project, source: SignalSource, t: number, gain: number, out: Sounding[], depth = 0): void {
   if (depth > 8) return;
-  for (const track of tracksOf(view, source)) {
-    const clip = source.kind === "clip" ? undefined : clipAt(trackClips(view, track.id), t);
-    const clips = source.kind === "clip" ? trackClips(view, track.id).filter((c) => c.id === source.clipId && c.start <= t && t < clipEnd(c)) : clip ? [clip] : [];
-    for (const c of clips) {
-      if (!hasMedia(c)) continue;
-      const s = sourceTime(c, t);
-      const g = gain * volumeAt(c, s);
-      if (isNestedClip(c)) {
-        const inner = sequenceView(reader.document, c.assetId);
-        if (inner !== reader.document) soundsAt(reader, inner, MASTER, mediaTime(c, s), g, out, depth + 1);
-        continue;
-      }
-      const data = reader.store.get(c.assetId);
-      if (data) out.push({ data, time: mediaTime(c, s), gain: g, clip: c });
+  for (const track of view.tracks) {
+    if (source.kind === "master" ? track.muted : source.kind === "track" && track.id !== source.trackId) continue;
+    const clips = trackClips(view, track.id);
+    if (source.kind === "clip") {
+      for (const c of clips) if (c.id === source.clipId && c.start <= t && t < clipEnd(c)) sound(reader, c, t, gain, out, depth);
+      continue;
     }
+    const clip = clipAt(clips, t);
+    if (clip) sound(reader, clip, t, gain, out, depth);
   }
+}
+
+/** What clip `c` sounds at timeline time `t` (into `out`): its file's, or its nested sequence's. */
+function sound(reader: SignalReader, c: Clip, t: number, gain: number, out: Sounding[], depth: number): void {
+  if (!hasMedia(c)) return;
+  const s = sourceTime(c, t);
+  const g = gain * clipGain(c, s);
+  if (isNestedClip(c)) {
+    const inner = sequenceView(reader.document, c.assetId);
+    if (inner !== reader.document) soundsAt(reader, inner, MASTER, mediaTime(c, s), g, out, depth + 1);
+    return;
+  }
+  const data = reader.store.get(c.assetId);
+  if (data) out.push({ data, time: mediaTime(c, s), gain: g, clip: c });
 }
 
 /** The view of a sequence (null: the main one). */
@@ -560,6 +584,17 @@ function placeSource(reader: SignalReader, sequenceId: string | null, source: Si
 const RATE = SIGNAL_RATE;
 const STEP = 1 / RATE;
 
+/** How a series shapes its signal (threshold, curve) and follows it (attack, release). */
+interface SeriesShape {
+  threshold: number;
+  curve: number;
+  attack: number;
+  release: number;
+}
+
+/** Samples a follower warms up over before the first it's read at: eight time constants (at most a minute). */
+const warmOf = (shape: SeriesShape) => Math.ceil(Math.min(60, 8 * Math.max(shape.attack, shape.release)) * RATE);
+
 /**
  * A signal shaped (threshold, curve) and followed (attack, release) at `SIGNAL_RATE`, in blocks.
  * Each block starts its follower eight time constants before it (from silence at 0), so a value
@@ -573,10 +608,10 @@ class Series {
 
   constructor(
     private readonly raw: (t: number) => number,
-    private readonly shape: { threshold: number; curve: number; attack: number; release: number },
+    private readonly shape: SeriesShape,
     private readonly findsHits = false,
   ) {
-    this.warm = Math.ceil(Math.min(60, 8 * Math.max(shape.attack, shape.release)) * RATE);
+    this.warm = warmOf(shape);
     this.size = Math.max(RATE, this.warm);
   }
 
@@ -638,6 +673,62 @@ class Series {
   }
 }
 
+/** Samples a live series keeps behind its head, and how many of the newest it works out again each time. */
+const LIVE_KEPT = 64;
+const LIVE_FRESH = 4;
+
+/**
+ * A series of a sound heard live, followed on from where the last frame left it. Its store is new every frame, so a
+ * `Series` would warm up its block afresh each time (hundreds of samples a series, a frame: most of what a look
+ * cost the CPU); this one works out the few samples heard since. The newest few (`LIVE_FRESH`) are worked out again
+ * each time, as what's just been heard can still change; one read far from its head warms up afresh, as a block does.
+ */
+class LiveSeries {
+  raw: (t: number) => number = () => 0;
+  private readonly warm: number;
+  /** The follower after sample `head - 1`; the samples kept, at `i % LIVE_KEPT`, from `first`. */
+  private head = 0;
+  private value = 0;
+  private first = 0;
+  private readonly kept = new Float32Array(LIVE_KEPT);
+
+  constructor(private readonly shape: SeriesShape) {
+    this.warm = warmOf(shape);
+  }
+
+  private shaped(i: number) {
+    return i < 0 ? 0 : shapeValue(this.raw(i * STEP), this.shape.threshold, this.shape.curve);
+  }
+
+  private sample(j: number): number {
+    if (j < 0) return 0;
+    const { attack, release } = this.shape;
+    const settled = Math.max(0, j - LIVE_FRESH);
+    if (settled < Math.max(this.first, this.head - LIVE_KEPT) || settled > this.head + this.warm) {
+      this.head = Math.max(0, settled - this.warm);
+      this.value = this.head === 0 ? 0 : this.shaped(this.head);
+      this.first = settled;
+    }
+    for (; this.head < settled; this.head++) this.kept[this.head % LIVE_KEPT] = this.value = follow(this.value, this.shaped(this.head), attack, release, STEP);
+    if (j < this.head) return this.kept[j % LIVE_KEPT];
+    let v = this.value;
+    for (let i = this.head; i <= j; i++) v = follow(v, this.shaped(i), attack, release, STEP);
+    return v;
+  }
+
+  at(t: number): number {
+    if (!(t >= 0)) return 0;
+    const x = t * RATE;
+    const i = Math.floor(x);
+    const a = this.sample(i);
+    return a + (this.sample(i + 1) - a) * (x - i);
+  }
+
+  hits(): Hit[] {
+    return [];
+  }
+}
+
 /** What changes what a video sounds like: its sounds' clips (where, which part, how loud) and its tracks' mutes. */
 const soundPrints = new WeakMap<Project, string>();
 function soundPrint(document: Project): string {
@@ -657,8 +748,25 @@ function soundPrint(document: Project): string {
 
 const seriesCache = new WeakMap<SignalStore, { print: string; map: Map<string, Series> }[]>();
 
-/** The series under `key` for this video's sound (made by `make` the first time). */
-function seriesFor(reader: SignalReader, key: string, make: () => Series): Series {
+/** The live series of the sound heard last (a new session starts afresh). */
+let liveSeries: { session: string; map: Map<string, LiveSeries> } | null = null;
+
+/** A series' value at a time, and its hits (only a `Series` finds them). */
+type Followed = Pick<Series, "at" | "hits">;
+
+/** The series under `key` for this video's sound: `raw` shaped and followed (made the first time). */
+function seriesFor(reader: SignalReader, key: string, raw: (t: number) => number, shape: SeriesShape, findsHits = false): Followed {
+  if (reader.live !== undefined && !findsHits) {
+    if (liveSeries?.session !== reader.live) liveSeries = { session: reader.live, map: new Map() };
+    let series = liveSeries.map.get(key);
+    if (!series) {
+      if (liveSeries.map.size > 512) liveSeries.map.clear();
+      liveSeries.map.set(key, (series = new LiveSeries(shape)));
+    }
+    // (Read through this frame's store: the series outlives it.)
+    series.raw = raw;
+    return series;
+  }
   const print = soundPrint(reader.document);
   let list = seriesCache.get(reader.store);
   if (!list) seriesCache.set(reader.store, (list = []));
@@ -670,7 +778,7 @@ function seriesFor(reader: SignalReader, key: string, make: () => Series): Serie
   let series = entry.map.get(key);
   if (!series) {
     if (entry.map.size > 512) entry.map.clear();
-    entry.map.set(key, (series = make()));
+    entry.map.set(key, (series = new Series(raw, shape, findsHits)));
   }
   return series;
 }
@@ -678,10 +786,10 @@ function seriesFor(reader: SignalReader, key: string, make: () => Series): Serie
 const sourceKey = (source: SignalSource) => (source.kind === "master" ? "master" : source.kind === "track" ? `t:${source.trackId}` : `c:${source.clipId}`);
 
 /** A band signal's series (its own shaping, and its hits when it has them), read on sequence `sequenceId`. */
-function bandSeries(reader: SignalReader, def: Extract<SignalDef, { kind: "band" }>, sequenceId: string | null): Series {
+function bandSeries(reader: SignalReader, def: Extract<SignalDef, { kind: "band" }>, sequenceId: string | null): Followed {
   const { source, low, high, autoGain, gain, threshold, curve, attack, release, onsets } = def;
   const key = `band|${sequenceId}|${sourceKey(source)}|${low}|${high}|${autoGain}|${gain}|${threshold}|${curve}|${attack}|${release}|${onsets}`;
-  return seriesFor(reader, key, () => new Series((t) => bandValue(reader, sequenceId, source, low, high, t, !autoGain, gain), { threshold, curve, attack, release }, onsets));
+  return seriesFor(reader, key, (t) => bandValue(reader, sequenceId, source, low, high, t, !autoGain, gain), { threshold, curve, attack, release }, onsets);
 }
 
 /** A hit list's level at `t` with `shape`: the highest of the hits still sounding, each times its velocity. */
@@ -824,14 +932,14 @@ export function linkLevel(reader: SignalReader, sequenceId: string | null, link:
       const home = custom.kind === "band" ? placeSource(reader, sequenceId, custom.source, t) : { sequenceId: hearingFor(reader, sequenceId).sequenceId, t: hearingFor(reader, sequenceId).at(t) };
       const key = `link|${home.sequenceId}|${custom.id}|${JSON.stringify(custom)}|${shapeKey}`;
       const own = custom.kind === "band" ? bandSeries(reader, custom, home.sequenceId) : null;
-      const series = seriesFor(reader, key, () => new Series((x) => (own ? own.at(x) : custom.kind === "curve" ? curveLevel(custom, x) : 0), shape));
+      const series = seriesFor(reader, key, (x) => (own ? own.at(x) : custom.kind === "curve" ? curveLevel(custom, x) : 0), shape);
       level = series.at(home.t);
     } else {
       const name = (ref as { name: string }).name as ScalarName;
       const source = ("name" in ref && ref.source) || MASTER;
       const where = heard(reader, sequenceId, source, t);
       const key = `link|${where.sequenceId}|${sourceKey(source)}|${name}|${shapeKey}`;
-      level = seriesFor(reader, key, () => new Series((x) => signalValue(reader, where.sequenceId, source, name, x, STEP), shape)).at(where.t);
+      level = seriesFor(reader, key, (x) => signalValue(reader, where.sequenceId, source, name, x, STEP), shape).at(where.t);
     }
   }
   return r.invert ? 1 - level : level;
@@ -875,11 +983,15 @@ export function visualizerSource(value: unknown, clipId: string): SignalSource {
   return MASTER;
 }
 
+/** `bandsInto`'s sums, kept between calls: it runs a few thousand times a frame. */
+const bandEnergy = new Float64Array(BAND_COUNT);
+const bandReference = new Float64Array(BAND_COUNT);
+
 /** The 96 bands of what sounds in `sounds`, 0..1 against their loud parts, into `out` (taking the higher of each). */
 function bandsInto(sounds: Sounding[], out: Float64Array, weight: number): void {
   if (!sounds.length) return;
-  const energy = new Float64Array(BAND_COUNT);
-  const reference = new Float64Array(BAND_COUNT);
+  const energy = bandEnergy.fill(0);
+  const reference = bandReference.fill(0);
   for (const s of sounds) {
     const frame = Math.round(s.time * s.data.header.rate);
     const inside = frame >= 0 && frame < s.data.header.frames;

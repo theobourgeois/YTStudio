@@ -4,6 +4,7 @@ import {
   NEVER,
   beatAt,
   createSignalReader,
+  linkLevel,
   resolveSource,
   signalValue,
   sourceHits,
@@ -391,5 +392,18 @@ describe("what a visualizer hears", () => {
     expect(usesSignals(project([clip]))).toBe(true);
     // Without a reader, silence (cards get made-up sound instead).
     expect(Math.max(...effectPasses(clip, 2.27, 30)[0].audio!.spectrum)).toBe(0);
+  });
+});
+
+describe("signals heard live", () => {
+  it("follow on from frame to frame as a fresh warm-up would", () => {
+    const p = project([songClip(), solid]);
+    const link = { signal: { name: "bass" as const }, response: { threshold: 0, curve: 1, attack: 0.01, release: 0.3, invert: false } };
+    const fresh = (t: number) => linkLevel(createSignalReader(p, new Map(store)), null, link, t);
+    // A new store each frame, as Now Playing's is: the live series carries on, the other warms up each time.
+    const live = (t: number) => linkLevel({ document: p, store: new Map(store), live: "song" }, null, link, t);
+    for (let t = 2; t < 5.5; t += 1 / 60) expect(live(t)).toBeCloseTo(fresh(t), 3);
+    // Read far from where it was, it warms up afresh.
+    expect(live(2.4)).toBeCloseTo(fresh(2.4), 3);
   });
 });

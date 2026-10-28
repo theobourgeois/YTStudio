@@ -544,13 +544,20 @@ test("Now Playing's media: clips and pictures of the user's, melting into MilkDr
   const model = panel.locator('[data-model="model:poly-pizza:robot-0"]');
   await expect(model).toContainText("Moves");
   await model.getByRole("button", { name: "Add robot 1" }).click();
-  await expect(model.getByRole("button", { name: "robot 1: in the visualizer" })).toBeVisible({ timeout: 30_000 });
+  const modelInSet = model.getByRole("button", { name: /^robot 1: in this set/ });
+  await expect(modelInSet).toBeVisible({ timeout: 30_000 });
+  // Clicked again it's taken out of the set (its tick a cross on hover), and can be put back.
+  await modelInSet.click();
+  await expect(model.getByRole("button", { name: "Add robot 1" })).toBeVisible({ timeout: 10_000 });
+  await model.getByRole("button", { name: "Add robot 1" }).click();
+  await expect(modelInSet).toBeVisible({ timeout: 30_000 });
   await panel.getByRole("button", { name: "Back to your media" }).click();
   const box = panel.locator('[data-media][data-kind="model"]');
   await expect(box).toHaveCount(1);
   await expect(box).toContainText("3D · animated");
   await expect(box).toContainText("Stand-in · CC0 1.0");
-  await expect(milkdrop).toHaveAttribute("data-media", (await box.getAttribute("data-media"))!);
+  // (First: the look may show the other beside it.)
+  await expect(milkdrop).toHaveAttribute("data-media", new RegExp(`^${(await box.getAttribute("data-media"))!}( |$)`));
   await expect.poll(async () => Number(await milkdrop.getAttribute("data-fed")), { timeout: 10_000 }).toBeGreaterThan(30);
   const withModel = await (await page.request.get("/api/library")).json();
   expect(withModel.media.some((m: { origin?: string; kind: string }) => m.origin === "model:poly-pizza:robot-0" && m.kind === "model")).toBe(true);

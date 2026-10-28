@@ -532,7 +532,11 @@ const ENERGY: Record<LookKind, Energy> = {
   milkdrop: { punch: 0.08, shake: 0.25, strobe: 0, split: 0.01, invert: 0, lift: 0.5 },
 };
 
-/** A 3D scene (it draws the whole frame), coloured by the song and glowing on the bass. */
+/**
+ * A 3D scene (it draws the whole frame), coloured by the song and glowing on the bass. The heaviest ones march with
+ * fewer steps live (`quality`, measured with scripts/now-playing-perf.ts): a frame is due every 60th of a second,
+ * and they read the same.
+ */
 function world(type: string, params: ParamValues, p: AlbumPalette, r: () => number, opts: { tint?: number; glow?: number } = {}): LookLayer[] {
   return [
     adjust([
@@ -572,7 +576,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     name: "Nebula",
     kind: "world",
     suits: { characters: ["chill", "groove"], energy: [0, 0.7], flows: true },
-    layers: ({ palette: p, random: r }) => world("nebula", { palette: pick(r, ["hubble", "cosmic", "natural"]), density: between(r, 0.8, 1.2) }, p, r),
+    layers: ({ palette: p, random: r }) => world("nebula", { quality: 0.45, palette: pick(r, ["hubble", "cosmic", "natural"]), density: between(r, 0.8, 1.2) }, p, r),
   },
   {
     id: "wormhole",
@@ -602,7 +606,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     suits: { characters: ["chill", "groove"], energy: [0, 0.7], flows: true },
     layers: ({ palette: p, random: r }) => [
       drawing("audio-circle", { radius: 0.26, barLength: 0.08, bars: 160, mirror: true, pulse: 0.1, gap: 0.5, color: p.light, color2: p.accent }, [], { opacity: { params: { opacity: 0.55, blendMode: "screen" } } }),
-      ...world("galaxy", { palette: pick(r, ["hubble", "andromeda", "neon"]), arms: pick(r, ["two", "three", "four"]) }, p, r),
+      ...world("galaxy", { quality: 0.55, palette: pick(r, ["hubble", "andromeda", "neon"]), arms: pick(r, ["two", "three", "four"]) }, p, r),
     ],
   },
   {
@@ -617,14 +621,14 @@ export const LIVE_LOOKS: LiveLook[] = [
     name: "Ridgeline",
     kind: "world",
     suits: { characters: ["groove", "hype"], energy: [0.3, 1] },
-    layers: ({ palette: p, random: r }) => world("ridgeline", { style: pick(r, ["dusk", "neon", "night"]), sunHeight: between(r, 0.25, 0.4) }, p, r),
+    layers: ({ palette: p, random: r }) => world("ridgeline", { quality: 0.6, style: pick(r, ["dusk", "neon", "night"]), sunHeight: between(r, 0.25, 0.4) }, p, r),
   },
   {
     id: "abyss",
     name: "Abyss",
     kind: "world",
     suits: { characters: ["chill", "groove"], energy: [0, 0.65], flows: true },
-    layers: ({ palette: p, random: r }) => world("abyss", { glow: pick(r, ["cyan", "magenta", "gold", "rainbow"]), jellies: Math.round(between(r, 5, 9)) }, p, r),
+    layers: ({ palette: p, random: r }) => world("abyss", { quality: 0.55, glow: pick(r, ["cyan", "magenta", "gold", "rainbow"]), jellies: Math.round(between(r, 5, 9)) }, p, r),
   },
   {
     id: "cyberspace",
@@ -659,7 +663,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     name: "Cosmic Web",
     kind: "world",
     suits: { characters: ["chill", "groove"], energy: [0.1, 0.8], flows: true },
-    layers: ({ palette: p, random: r }) => world("cosmic-web", { style: pick(r, ["cosmic", "neural", "dark"]) }, p, r),
+    layers: ({ palette: p, random: r }) => world("cosmic-web", { quality: 0.4, style: pick(r, ["cosmic", "neural", "dark"]) }, p, r),
   },
   {
     id: "infinite-dive",
@@ -673,7 +677,7 @@ export const LIVE_LOOKS: LiveLook[] = [
     name: "Collider",
     kind: "world",
     suits: { characters: ["hype", "heavy"], energy: [0.5, 1] },
-    layers: ({ palette: p, random: r }) => world("collider", { style: pick(r, ["display", "neon", "bubble"]) }, p, r, { tint: between(r, 0.4, 0.6) }),
+    layers: ({ palette: p, random: r }) => world("collider", { quality: 0.55, style: pick(r, ["display", "neon", "bubble"]) }, p, r, { tint: between(r, 0.4, 0.6) }),
   },
 
   // Spectrums: the sound drawn plainly, made to glow.

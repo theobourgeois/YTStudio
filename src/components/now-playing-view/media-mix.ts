@@ -292,3 +292,49 @@ export function pickMedia(media: readonly MediaChoice[], recent: readonly string
   const room = from.kind === "video" ? Math.max(0, from.duration - 2) : 0;
   return { id: from.id, from: room > 2 ? Math.round((1 + random() * (room - 1)) * 10) / 10 : 0 };
 }
+
+/**
+ * Where one of several shown at once goes: its middle's offset from the frame's, and the box it fits in (each a share
+ * of the frame's width and height; 1: alone, as ever).
+ */
+export interface Seat {
+  x: number;
+  y: number;
+  scale: number;
+}
+
+/** The most of the user's media a look shows at once. */
+export const MOST_TOGETHER = 3;
+
+/**
+ * How many of the user's media a MilkDrop look shows at once: each look leans its own way (by its id: about half
+ * show one, a third two, the rest three), and the calmer the moment the more often one fewer. Never more than there are.
+ */
+export function togetherFor(lookId: string, available: number, intensity: number, random: () => number): number {
+  let hash = 2166136261;
+  for (let i = 0; i < lookId.length; i++) hash = Math.imul(hash ^ lookId.charCodeAt(i), 16777619);
+  const lean = (hash >>> 0) % 100;
+  const most = Math.min(Math.max(1, available), lean < 45 ? 1 : lean < 80 ? 2 : MOST_TOGETHER);
+  if (most === 1) return 1;
+  return random() < 0.45 + 0.45 * Math.max(0, Math.min(1, intensity)) ? most : most - 1;
+}
+
+/** Where `n` shown at once sit: one in the middle as ever; two side by side; three in a row, the middle one a little lower. */
+export function seatsFor(n: number, random: () => number): Seat[] {
+  const jitter = () => (random() - 0.5) * 0.04;
+  if (n <= 1) return [{ x: 0, y: 0, scale: 1 }];
+  if (n === 2) return [-1, 1].map((side) => ({ x: side * 0.25 + jitter(), y: jitter(), scale: 0.46 }));
+  return [-1, 0, 1].map((side) => ({ x: side * 0.33 + jitter(), y: (side === 0 ? -0.06 : 0.04) + jitter(), scale: 0.3 }));
+}
+
+/** `n` different ones of the user's media for a look (fewer if there aren't as many), each as `pickMedia` picks. */
+export function pickSeveral(media: readonly MediaChoice[], recent: readonly string[], n: number, random: () => number): { id: string; from: number }[] {
+  const picked: { id: string; from: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const left = media.filter((m) => !picked.some((p) => p.id === m.id));
+    const one = pickMedia(left, recent, random);
+    if (!one) break;
+    picked.push(one);
+  }
+  return picked;
+}

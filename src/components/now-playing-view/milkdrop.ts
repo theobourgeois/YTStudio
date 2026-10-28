@@ -15,13 +15,43 @@ import { MILKDROP_PRESETS, MILKDROP_SIZE, milkdropPreset } from "@shared/live-mi
 import type { LiveSignals } from "@shared/signals/live";
 import { errorMessage } from "@shared/errors";
 import { log } from "@/lib/log";
-import { Brake, type FedMedia, MediaFeed } from "./media-feed";
+import { Brake, type FedMedia, MODEL_SCALE, MediaFeed } from "./media-feed";
+import { MOST_TOGETHER, type Seat } from "./media-mix";
 import type { MediaMix } from "./media-mix";
 
 const logger = log("now-playing");
 
 /** Samples a channel Butterchurn hears each frame (its analysis's size). */
 const SAMPLES = 1024;
+
+/** What `freeReplacedShaders` reaches into: Butterchurn's renderer and the two shaders a preset brings. */
+interface ShaderHolder {
+  shaderProgram?: WebGLProgram | null;
+  updateShader(text: string): void;
+}
+
+/**
+ * Butterchurn compiles a preset's warp and comp shaders into new programs as it loads one and never deletes the ones
+ * they replace: hours of presets changing pile up thousands of programs in the GPU process, and every frame gets slower
+ * until the app is reopened. So each shader deletes the program it had (by then two presets old, nothing draws with
+ * it) before it makes the next.
+ */
+function freeReplacedShaders(visualizer: ButterchurnVisualizer, gl: WebGL2RenderingContext): void {
+  const renderer = (visualizer as unknown as { renderer?: Record<string, ShaderHolder | undefined> }).renderer;
+  for (const key of ["warpShader", "compShader", "prevWarpShader", "prevCompShader"]) {
+    const shader = renderer?.[key];
+    if (!shader || Object.hasOwn(shader, "updateShader")) continue;
+    const update = shader.updateShader;
+    shader.updateShader = function (this: ShaderHolder, text: string) {
+      const old = this.shaderProgram;
+      if (old) {
+        for (const attached of gl.getAttachedShaders(old) ?? []) gl.deleteShader(attached);
+        gl.deleteProgram(old);
+      }
+      update.call(this, text);
+    };
+  }
+}
 
 /** A CommonJS module as the bundler hands it over: its exports, wrapped in `default` once or twice. */
 function exportsOf<T>(mod: unknown, has: string): T {
@@ -43,6 +73,8 @@ export interface Feeding {
   mix: MediaMix;
   hit: number;
   fade?: number;
+  /** One of several shown together: where (`seatsFor`). */
+  seat?: Seat;
 }
 
 export class MilkDrop {
@@ -70,9 +102,9 @@ export class MilkDrop {
   /** In slow motion: its last two frames, and what's shown of them (`picture`). */
   private slow: { before: HTMLCanvasElement; last: HTMLCanvasElement; shown: HTMLCanvasElement } | null = null;
   private slowed = false;
-  /** The user's clips and pictures, painted into its feedback. */
-  private feed: MediaFeed | null = null;
-  private feeding: Feeding | null = null;
+  /** The user's clips and pictures, painted into its feedback: a feed for each shown at once (the first, alone, most often). */
+  private feeds: MediaFeed[] = [];
+  private feeding: readonly Feeding[] = [];
   /** A screen or window shared (`screen.ts`), under the clips. */
   private screenFeed: MediaFeed | null = null;
   private screen: Feeding | null = null;
@@ -118,10 +150,12 @@ export class MilkDrop {
     if (missing.length) logger.warn(`MilkDrop presets not found: ${missing.map((p) => p.name).join(", ")}`);
     const { createVisualizer } = exportsOf<{ createVisualizer: typeof import("butterchurn").default.createVisualizer }>(butterchurn, "createVisualizer");
     this.visualizer = createVisualizer(null, this.canvas, { ...MILKDROP_SIZE, pixelRatio: 1, textureRatio: 1 });
+    freeReplacedShaders(this.visualizer, this.gl);
     // (One brake for both: what they paint piles up in the one picture.)
     const brake = new Brake();
     this.screenFeed = new MediaFeed(this.gl, brake);
-    this.feed = new MediaFeed(this.gl, brake);
+    // (The others only ever show a model small, beside another: their stages are drawn smaller.)
+    for (let i = 0; i < MOST_TOGETHER; i++) this.feeds.push(new MediaFeed(this.gl, brake, i === 0 ? MODEL_SCALE : 0.5));
     this.canvas.dataset.milkdrop = "ready";
     logger.info(`MilkDrop ready: ${this.presets.size} presets in ${Math.round(performance.now() - started)} ms`);
   }
@@ -129,10 +163,10 @@ export class MilkDrop {
   /**
    * Draw the frame for `time` (`seconds` after the last) if a MilkDrop look is on screen (`shown`): the newest one's
    * preset, blended into over what's left of its switch when the one before is MilkDrop's too. `pace`: how fast it
-   * goes (slow motion's: a frame of Butterchurn's every `1 / pace` of the display's). `feeding`: the user's clip into its
-   * feedback; `screen`: a screen shared, under it. Whether it drew.
+   * goes (slow motion's: a frame of Butterchurn's every `1 / pace` of the display's). `feeding`: the user's clips into its
+   * feedback (up to `MOST_TOGETHER`, each in its seat); `screen`: a screen shared, under them. Whether it drew.
    */
-  draw(time: number, seconds: number, shown: Shown, signals: LiveSignals | null, pace = 1, feeding: Feeding | null = null, screen: Feeding | null = null): boolean {
+  draw(time: number, seconds: number, shown: Shown, signals: LiveSignals | null, pace = 1, feeding: readonly Feeding[] = [], screen: Feeding | null = null): boolean {
     const on = shown.filter((s) => milkdropPreset(s.look));
     if (!on.length || this.disposed) return false;
     void this.prepare();
@@ -155,8 +189,10 @@ export class MilkDrop {
       }
     }
     this.feeding = feeding;
-    this.feed?.show(feeding ? { ...feeding.media, rate: pace } : null);
-    this.feed?.setRate(pace);
+    this.feeds.forEach((feed, i) => {
+      feed.show(feeding[i] ? { ...feeding[i].media, rate: pace } : null);
+      feed.setRate(pace);
+    });
     this.screen = screen;
     this.screenFeed?.show(screen?.media ?? null);
     this.owed += Math.min(1, pace);
@@ -203,15 +239,17 @@ export class MilkDrop {
     if (screenFed && this.screenFeed!.frames % 30 === 1) this.canvas.dataset.screenFed = String(this.screenFeed!.frames);
     const screenShown = this.screenFeed?.showing ? "on" : "";
     if ((this.canvas.dataset.screen ?? "") !== screenShown) this.canvas.dataset.screen = screenShown;
-    const feeding = this.feeding;
-    if (feeding && this.feed?.feed(visualizer.renderer, feeding.mix, feeding.hit, seconds, screenFed ? undefined : this.canvas, feeding.fade)) {
-      if (this.feed.frames % 30 === 1) {
-        this.canvas.dataset.fed = String(this.feed.frames);
-        this.canvas.dataset.mediaGain = this.feed.gain.toFixed(2);
-        this.canvas.dataset.mediaKeyed = String(this.feed.keyed);
+    this.feeding.forEach((feeding, i) => {
+      const feed = this.feeds[i];
+      // (The picture's paleness measured by one feed: the first, unless the screen's did.)
+      if (!feed?.feed(visualizer.renderer, feeding.mix, feeding.hit, seconds, screenFed || i > 0 ? undefined : this.canvas, feeding.fade, feeding.seat)) return;
+      if (i === 0 && feed.frames % 30 === 1) {
+        this.canvas.dataset.fed = String(feed.frames);
+        this.canvas.dataset.mediaGain = feed.gain.toFixed(2);
+        this.canvas.dataset.mediaKeyed = String(feed.keyed);
       }
-    }
-    const fed = this.feed?.showing ?? "";
+    });
+    const fed = this.feeds.flatMap((feed) => feed.showing ?? []).join(" ");
     if (this.canvas.dataset.media !== fed) this.canvas.dataset.media = fed;
     if (++this.frames % 30 === 0) this.canvas.dataset.frames = String(this.frames);
     if (this.slowed) {
@@ -247,8 +285,8 @@ export class MilkDrop {
   /** Let go of its GPU context. */
   dispose(): void {
     this.disposed = true;
-    this.feed?.dispose();
-    this.feed = null;
+    for (const feed of this.feeds) feed.dispose();
+    this.feeds = [];
     this.screenFeed?.dispose();
     this.screenFeed = null;
     this.visualizer = null;

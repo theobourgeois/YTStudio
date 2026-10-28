@@ -859,7 +859,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
     );
     // The user's clips and pictures, melting into MilkDrop's feedback, from one of their sets.
     const { media, feeding, sets, setId } = useVisualizerMedia.getState();
-    const fed = media.find((m) => m.asset.id === feeding)?.asset.name;
+    const fed = media.filter((m) => feeding.includes(m.asset.id)).map((m) => m.asset.name).join(" and ") || null;
     const inUse = sets.find((s) => s.id === setId);
     if (sets.length > 1) lines.push(`The user's sets of clips (mediaSet): ${sets.map((s) => `${s.name} (${s.media.length}${s.id === setId ? ", in use" : ""})`).join(", ")}.`);
     lines.push(
