@@ -1312,7 +1312,7 @@ export const VIDEO_TOOLS = [
       "looks change by themselves (off: stay; song: follow the music, a look that suits the song's kind and intensity, changed on songs, drops and breakdowns; beat: every beat, cutting on it; " +
       "bars1, bars2, bars4, bars8, bars16, bars32: every so many bars, each a look that suits the music), `pace` slows it all down, " +
       "`rate` loves or bins the look shown for the kind of song playing (as the user's L and B do), `rating` starts or stops the rating mode, " +
-      "`media` turns the user's own clips and pictures (melting into MilkDrop's feedback) on or off or brings in another, `mediaSet` feeds from another of their sets of clips, `screen` shares a screen or another program's window (FL Studio...) into MilkDrop's looks or stops it. Only what's given happens: the song first, then the visualizer.",
+      "`media` turns the user's own clips and pictures (melting into MilkDrop's feedback) on or off or brings in another, `mediaSet` feeds from another of their sets of clips, `model` finds a 3D model (a character, an animal, a thing) and adds it to the set in use, shown next, `screen` shares a screen or another program's window (FL Studio...) into MilkDrop's looks or stops it. Only what's given happens: the song first, then the visualizer.",
     inputSchema: obj({
       action: oneOf(["play", "pause", "toggle", "next", "previous"], "What the player does."),
       seek: num("Go to this many seconds into the song.", { minimum: 0 }),
@@ -1369,6 +1369,10 @@ export const VIDEO_TOOLS = [
       mediaSet: str(
         "The name of one of the user's sets of clips (from now_playing: friends for a music video, nature...) to feed from now on, turning their clips on. Pick one whose name suits the song when the user asks for clips that fit.",
       ),
+      model: str(
+        "Words to find a free 3D model by (Poly Pizza's, else Sketchfab's: a robot, a dancing cat, a donut...): the best match is downloaded into the set of clips in use, with its maker's credit, and shown next in MilkDrop's looks (it moves and dances with the music if it's animated). \"starter pack\" adds the starter pack's 40 models as a set of their own. When the user asks for models or things in the visualizer.",
+      ),
+      modelAnimated: bool("With `model`: only models that move (characters and animals, dancing, flying, running)."),
       screen: str(
         "A screen or another program's window to show in MilkDrop's looks, always, the clips coming in over it now and then (only MilkDrop's looks are picked while it's shared): its name, or part of it, from now_playing's list (FL Studio, Screen 1...); off stops sharing. The desktop app only: in a browser the user picks it themselves (G, or the media panel's Screen).",
       ),

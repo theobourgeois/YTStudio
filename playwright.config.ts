@@ -27,7 +27,7 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1440, height: 900 },
-        launchOptions: { args: ["--ignore-gpu-blocklist", "--enable-unsafe-swiftshader", ...(process.platform === "darwin" ? ["--use-angle=metal", "--enable-gpu"] : [])] },
+        launchOptions: { args: ["--ignore-gpu-blocklist", "--enable-unsafe-swiftshader", ...(process.platform === "darwin" ? ["--use-angle=metal", "--enable-gpu"] : process.platform === "win32" ? ["--use-angle=d3d11", "--enable-gpu"] : [])] },
       },
     },
   ],
@@ -59,6 +59,8 @@ export default defineConfig({
         // And for Now Playing: made-up songs, never this computer's Spotify.
         EDITOR_NOW_PLAYING: "stand-in",
         EDITOR_VIBE_MODEL: "stand-in",
+        // And the visualizer's 3D model search: tiny made-up models, never Poly Pizza's or Sketchfab's.
+        EDITOR_MODEL_SEARCH: "stand-in",
       },
       url: `http://127.0.0.1:${SERVER_PORT}/api/health`,
       reuseExistingServer: false,

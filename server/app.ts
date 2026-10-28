@@ -14,7 +14,7 @@ import { type AppId, appInfo } from "../shared/apps.ts";
 import { Bridge } from "./assistant/bridge.ts";
 import { mcpHandler } from "./assistant/mcp.ts";
 import { AssistantService } from "./assistant/service.ts";
-import { ENGINE_CONNECT, FL_STUDIO, GALLERY_DL, MODELS_DIR, MUSIC_MODELS, MUSIC_WORKER, NOW_PLAYING, ONLINE_ASSETS, PHOTO_HELPER, PHOTO_MODELS, SERUM_LIBRARY, VIBE_MODEL, config } from "./config.ts";
+import { ENGINE_CONNECT, FL_STUDIO, GALLERY_DL, MODEL_SEARCH, MODELS_DIR, MUSIC_MODELS, MUSIC_WORKER, NOW_PLAYING, ONLINE_ASSETS, PHOTO_HELPER, PHOTO_MODELS, POLY_PIZZA_API_KEY, SERUM_LIBRARY, SKETCHFAB_API_TOKEN, VIBE_MODEL, config } from "./config.ts";
 import { photoModels } from "./photo/models.ts";
 import { ExportManager } from "./exports.ts";
 import { RenderFiles } from "./render-files.ts";
@@ -51,6 +51,8 @@ import { exportRoutes } from "./routes/exports.ts";
 import { logRequests, logRoutes, requestPath } from "./routes/log.ts";
 import { renderFileRoutes } from "./routes/render-files.ts";
 import { libraryRoutes } from "./routes/library.ts";
+import { modelRoutes } from "./routes/models.ts";
+import { ModelSearch } from "./model-search.ts";
 import { mediaRoutes } from "./routes/media.ts";
 import { nowPlayingRoutes } from "./routes/now-playing.ts";
 import { DownloadedModel } from "./models.ts";
@@ -291,7 +293,14 @@ export async function createApp({
   const vibeModel = new DownloadedModel(MODELS_DIR, VIBE_MODEL === "stand-in", VIBE_MODEL_SPEC);
   const lookRatings = new LookRatings(paths.lookRatingsFile);
   app.use("/api/now-playing", nowPlayingRoutes(new NowPlaying(player === undefined ? defaultPlayer(NOW_PLAYING) : player), vibeModel, lookRatings));
-  app.use("/api/library", libraryRoutes(shared, web));
+  const modelKeys = new ApiKeyStore(paths.modelKeysFile);
+  await modelKeys.load();
+  const models = new ModelSearch(paths, modelKeys, {
+    environment: { "poly-pizza": POLY_PIZZA_API_KEY, sketchfab: SKETCHFAB_API_TOKEN },
+    standIn: MODEL_SEARCH === "stand-in",
+  });
+  app.use("/api/models", modelRoutes(models));
+  app.use("/api/library", libraryRoutes(shared, web, models));
   app.use("/api/exports", exportRoutes(exports));
   app.use("/api/render-files", renderFileRoutes(renders));
   app.use("/api/transcription", transcriptionRoutes(transcription));

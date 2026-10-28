@@ -5,6 +5,7 @@ import type { LibraryEntry, LibraryFolder, LibraryItem, MediaAsset, UpdateLibrar
 import { errorMessage } from "@shared/errors";
 import {
   type LibraryItemKind,
+  editorLibrary,
   folderPath,
   folderSubtree,
   itemMediaIds,
@@ -164,7 +165,8 @@ export const useLibrary = create<LibraryState>((set, get) => {
     load() {
       loading ??= api
         .getLibrary()
-        .then(({ folders, items, media }) => {
+        .then((library) => {
+          const { folders, items, media } = editorLibrary(library);
           set({ folders, items, assets: media, loaded: true, loadError: null });
           poll();
         })
@@ -176,7 +178,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     },
 
     async refresh() {
-      const { folders, items, media } = await api.getLibrary();
+      const { folders, items, media } = editorLibrary(await api.getLibrary());
       set({ folders, items, assets: media, loaded: true, loadError: null });
       poll();
       fixView();

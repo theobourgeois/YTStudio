@@ -22,6 +22,7 @@ visualization with presets, the cover's colours, vaudio's looks and its play key
 | The visualizer: director, source, keys, view | `src/components/now-playing-view/` | video (`ClientSuite.NowPlaying`) |
 | The looks as the user rated them (Your taste): what a rating is, its file | `shared/look-ratings.ts`, `server/look-ratings.ts` | platform |
 | The user's clips and pictures in MilkDrop's looks and feedback (Your media), found online too, in sets | `now-playing-view/media-feed.ts`, `media-mix.ts`, `media-library.ts`, `media-sets.ts`, `media-panel.tsx`; `LibraryStore.addFromWeb` | video |
+| 3D models in them (Your media, 3D models): searched on Poly Pizza and Sketchfab, a starter pack, drawn by three.js | `now-playing-view/model-stage.ts`, `model-motion.ts`, `use-model-search.ts`; `shared/model-search.ts`, `model-file.ts`; `server/model-search.ts`, `routes/models.ts`; `LibraryStore.addModel` | video |
 | A screen or another program's window in MilkDrop's looks (Your screen) | `now-playing-view/screen.ts`, `media-feed.ts` (`stream`), `milkdrop.ts` (`screenFeed`), `media-mix.ts` (visits), `media-panel.tsx` (Screen); `electron/screen-share.ts` | video |
 | Its own window (a stage) | `src/components/windows/native/stage-window.ts`, `electron/stage.ts` | platform |
 | vaudio's 2D visualizers | `shared/effect-library/audio.ts` (Wave Bars ... Acid Plasma) | video |
@@ -464,10 +465,15 @@ shows only its outlines: all of it washes a look out.
 
 - **Where they are**: the Library's Visualizer folder (`media-library.ts`, made the first time one's added), so they're
   kept with the Library (the video editor's Library tab shows them) and served from the same origin (the GPU may read
-  them). Added from the media panel (the film-strip button up top: Yours, with Add files, or drop files anywhere on the
-  visualizer; or **Online**, the video editor's search, `useWebSearch`: YouTube, or a pasted link from TikTok, Instagram,
-  X…), taken out there (deleted from the Library). One just added shows next (`wanted`). Clips play muted and looping,
-  at the picture's pace in slow motion.
+  them). Clips play muted and looping, at the picture's pace in slow motion.
+- **The media panel** (the film-strip button up top; redone 2026-10-28, Théo found the tabs confusing): one page, Your
+  media: the sets at the top, then every source in the set in use as one list whatever it is (a clip, a picture, a 3D
+  model, and the screen when one's shared, above them), each with what it is (`Video · 0:12`, `Picture`, `3D ·
+  animated`), a model's credit, and the one in the look marked ON; at the bottom **Add** and Another (N). Add is a menu:
+  **Files…** (clips, pictures, `.glb` models; or drop them anywhere on the visualizer), **Online video** (the video
+  editor's search, `useWebSearch`: YouTube, or a pasted link from TikTok, Instagram, X…), **3D models** and **Screen
+  or window**: each a page of its own with a way back (`MediaTab`), Online's going back by itself once its clip is in.
+  An empty set shows the four as buttons. One just added shows next (`wanted`); taken out is deleted from the Library.
 - **Sets** (Théo, 2026-10-16: "a batch of one type of clip then a batch of another… select one to make it the current
   clips it feeds from"): the Visualizer folder's own folders (`media-sets.ts`, pure and tested), friends for a music
   video, nature for another vibe; the visualizer feeds from one at a time (`setId`, kept in this browser: else the
@@ -509,6 +515,43 @@ shows only its outlines: all of it washes a look out.
   was taken out. The media panel says so when the look shown isn't MilkDrop's (it shows none). `--trace 60` watches the
   picture's light as it plays (`TRACE_ALL=1`: every reading, MilkDrop's own canvas's beside it; `--keys` at times), for
   a picture that goes dark.
+
+### 3D models
+
+Characters, animals and things in the looks (Théo, 2026-10-28: "they could have animations… would fit in and blend
+well… cycle through them"), a source like a clip: in sets, picked in turn, N for another.
+
+- **Found** (Add › 3D models, `use-model-search.ts` → `GET /api/models/search`, `server/model-search.ts`): **Poly
+  Pizza** (low poly, mostly CC0: Quaternius's animated characters and animals; its API key searches, its files need
+  none) or **Sketchfab** (free downloadable models under Creative Commons; its API token downloads, search needs
+  none), searched as typed, a page at a time, **Animated** only those that move (marked Moves). Each site's key is
+  kept by the server (`data/model-keys.json`, `POLY_PIZZA_API_KEY`/`SKETCHFAB_API_TOKEN` too), entered in the panel
+  when it's missing (`PUT /api/models/keys/:source`), never sent back to the page. Nothing typed: the starter pack.
+- **Downloaded** (`POST /api/library/items/model`, `LibraryStore.addModel` → `MediaLibrary.addModel`): the GLB (Sketchfab's
+  `.glb` download) with its picture, read without three.js
+  (`shared/model-file.ts`: what it holds, its animations, triangles, the extensions it needs). Refused: over 40 MB, or
+  Draco/Basis compression (the stage decodes only meshopt). Its credit (title, author, licence, page) goes with it
+  (`MediaAsset.model.credit`), shown on its row; one the Library has already (`origin` `model:<site>:<id>`) is moved
+  into the set rather than downloaded again. Kind `model`: the Library's only (the video editor doesn't take them).
+- **The starter pack** (`STARTER_MODELS`, `shared/model-search.ts`): 40 of Poly Pizza's, 25 that move (a robot, an
+  astronaut, a fox, a shark, a dragon…) and 15 things (a donut, a coffee cup, a boombox, a vinyl, a UFO…), about 20 MB,
+  downloaded into a set of its own (Starter pack) the first time the visualizer's media are read (`addStarter`, once:
+  `editor-visualizer-starter-pack` in this browser), in use at once if the set in use is empty; the panel shows its
+  progress, and Add › 3D models offers what's left of it. Not in the e2e tests (the stand-in search says so).
+- **Drawn** (`model-stage.ts`, loaded the first time one's shown): three.js in a canvas of its own (a transparent
+  background, 0.75 of the look's size), drawn every frame and painted by `media-feed.ts` like a clip whose background's
+  taken out (`cutout`: its alpha), on top and into the feedback, so trails stream off it in the preset's motion. Its
+  animation (`model-motion.ts`, pure and tested): a dance while the music's going, a calm loop (idle, flying) when
+  it's calm, never a death; a jump, wave or punch faded in on a big kick (one in three, at most every 3.5 s). It turns
+  slowly, punches in on the kicks and is lit in the cover's colours. A style each look (`modelLookFor`): its own
+  colours most, **chrome** (reflecting the look's own frame) and **neon** (its wireframe in the cover's accent) more as
+  it gets intense, and a **ring** of six for an object now and then. Mixed in as itself (`mixFor(..., "model")`): all
+  of it most, its outlines more as it gets intense. The last six shown stay loaded.
+- **The assistant**: `control_now_playing`'s `model` finds one by words (Poly Pizza, else Sketchfab; `modelAnimated`
+  only those that move) and adds the best match to the set in use, shown next; "starter pack" adds the starter pack.
+  `now_playing` lists them with the clips (3D model, animated).
+- **Seeing it**: `scripts/now-playing-sheet.ts` shows them as any source; the e2e test searches the stand-in
+  (`EDITOR_MODEL_SEARCH=stand-in`: tiny boxes, half of them moving).
 
 ## Your screen
 

@@ -6,10 +6,15 @@
  * unrecognisable). A clip on a flat background has it taken out (`backdropOf`, measured on the clip every so often) and floats
  * at its own shape; footage fills the frame. How much and which of it (`MediaMix`: all of it, only its light, only its
  * edges) is the music's (`media-mix.ts`). A shared screen or window (`screen.ts`) goes in the same way, whole and
- * as it is: all of it shown, nothing taken out, by a feed of its own (the clips come in over it now and then). Drawn with Butterchurn's own WebGL context, into its own buffer,
+ * as it is: all of it shown, nothing taken out, by a feed of its own (the clips come in over it now and then). A 3D model
+ * is drawn by three.js (`model-stage.ts`, loaded the first time one's shown) on a transparent background, every frame,
+ * and goes in like a clip whose background is taken out. Drawn with Butterchurn's own WebGL context, into its own buffer,
  * leaving its state as it was.
  */
 import type { ButterchurnRenderer } from "butterchurn";
+import { errorMessage } from "@shared/errors";
+import { log } from "@/lib/log";
+import type { ModelShow, ModelStage } from "./model-stage";
 import { type Backdrop, type MediaMix, PALE, amountOver, backdropOf, floatSize, placementOf, shownAt } from "./media-mix";
 
 const VERTEX = `#version 300 es
@@ -40,12 +45,18 @@ uniform int mode;
 uniform vec2 key;
 uniform int keyed;
 uniform int boxed;
+uniform int cutout;
 uniform vec3 bg;
 uniform float saturation;
 uniform float bright;
 out vec4 color;
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 vec3 at(vec2 p) { return texture(media, p).rgb; }
+// What edges are found in: its brightness (a model's: where it is, too, so its outline is an edge).
+float edge(vec2 p) {
+  vec4 t = texture(media, p);
+  return cutout == 1 ? max(luma(t.rgb), 0.35) * t.a : luma(t.rgb);
+}
 void main() {
   vec2 p;
   float inside = 1.0;
@@ -66,15 +77,19 @@ void main() {
   float keep = inside;
   // Its flat background taken out (soft, for compression's noise about it).
   if (keyed == 1) keep *= smoothstep(0.2, 0.38, distance(c, bg));
+  // A model: what isn't it is see-through (its outline kept for its edges).
+  if (cutout == 1 && mode != 2) keep *= texture(media, p).a;
   if (mode == 1) keep *= smoothstep(key.x, key.y, l);
   else if (mode == 2) {
-    float tl = luma(at(p + texel * vec2(-1, 1))), t = luma(at(p + texel * vec2(0, 1))), tr = luma(at(p + texel * vec2(1, 1)));
-    float ml = luma(at(p + texel * vec2(-1, 0))), mr = luma(at(p + texel * vec2(1, 0)));
-    float bl = luma(at(p + texel * vec2(-1, -1))), b = luma(at(p + texel * vec2(0, -1))), br = luma(at(p + texel * vec2(1, -1)));
+    float tl = edge(p + texel * vec2(-1, 1)), t = edge(p + texel * vec2(0, 1)), tr = edge(p + texel * vec2(1, 1));
+    float ml = edge(p + texel * vec2(-1, 0)), mr = edge(p + texel * vec2(1, 0));
+    float bl = edge(p + texel * vec2(-1, -1)), b = edge(p + texel * vec2(0, -1)), br = edge(p + texel * vec2(1, -1));
     float gx = (tr + 2.0 * mr + br) - (tl + 2.0 * ml + bl);
     float gy = (tl + 2.0 * t + tr) - (bl + 2.0 * b + br);
     keep *= smoothstep(key.x, key.y, length(vec2(gx, gy)));
     // Its outlines as light, in its own colours.
+    // (A model's outside is black: its silhouette glows in its colours, taken from just inside it.)
+    if (cutout == 1) c = mix(c, at(p + normalize(vec2(gx, gy) + 1e-5) * texel * 2.0), 1.0 - texture(media, p).a);
     c = c / max(max(c.r, max(c.g, c.b)), 0.25);
   }
   c = clamp(mix(vec3(luma(c)), c, saturation), 0.0, 1.0);
@@ -134,12 +149,19 @@ export class Brake {
   }
 }
 
-/** What's being fed: a clip, a picture or a screen, and its texture. */
+/** A model's stage is drawn this much smaller than the look (three.js draws it every frame). */
+const MODEL_SCALE = 0.75;
+
+const logger = log("now-playing");
+
+/** What's being fed: a clip, a picture, a screen or a model, and its texture. */
 interface Fed {
   id: string;
-  el: HTMLVideoElement | HTMLImageElement;
+  el: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement;
   /** A screen shared (live: no background looked for, shown whole and as it is). */
   live: boolean;
+  /** A 3D model (drawn every frame by its stage, on a transparent background). */
+  model: boolean;
   width: number;
   height: number;
   /** A frame of it is on the GPU. */
@@ -151,9 +173,10 @@ interface Fed {
   looked: number;
 }
 
-/** What the feed is given: a clip or a picture by its URL, or a screen shared (`screen.ts`). */
+/** What the feed is given: a clip, a picture or a model by its URL, or a screen shared (`screen.ts`). */
 export type FedMedia =
   | { id: string; kind: "video" | "image"; src: string; from?: number; rate?: number }
+  | { id: string; kind: "model"; src: string; animations: string[]; show: ModelShow; from?: number; rate?: number }
   | { id: string; kind: "stream"; stream: MediaStream; from?: number; rate?: number };
 
 export class MediaFeed {
@@ -163,6 +186,9 @@ export class MediaFeed {
   private uniforms: Record<string, WebGLUniformLocation | null> = {};
   private fed: Fed | null = null;
   private failed = false;
+  /** The models' stage (three.js), made the first time one's shown and kept. */
+  private stage: Promise<ModelStage> | null = null;
+  private stageNow: ModelStage | null = null;
   /** A frame of the clip, small, to see its background by. */
   private readonly small = document.createElement("canvas");
   /** Frames it has fed (for the tests). */
@@ -182,13 +208,28 @@ export class MediaFeed {
     const same = media?.id === this.fed?.id && (media?.kind !== "stream" || (this.fed?.el as HTMLVideoElement).srcObject === media.stream);
     if (same) {
       if (media && this.fed?.el instanceof HTMLVideoElement && !this.fed.live && media.rate) this.fed.el.playbackRate = media.rate;
+      if (media?.kind === "model") this.stageNow?.setPalette(media.show.palette);
       return;
     }
     this.release();
     if (!media) return;
     const live = media.kind === "stream";
-    const fed: Fed = { id: media.id, el: media.kind === "image" ? new Image() : document.createElement("video"), live, width: 0, height: 0, loaded: false, taken: -1, backdrop: null, looked: 0 };
-    if (media.kind === "stream" && fed.el instanceof HTMLVideoElement) {
+    const el = media.kind === "image" ? new Image() : media.kind === "model" ? document.createElement("canvas") : document.createElement("video");
+    const fed: Fed = { id: media.id, el, live, model: media.kind === "model", width: 0, height: 0, loaded: false, taken: -1, backdrop: null, looked: 0 };
+    if (media.kind === "model") {
+      // Drawn by its stage: fed once it's up (nothing until then).
+      const { width, height } = this.gl.canvas;
+      this.stage ??= import("./model-stage").then((m) => (this.stageNow = new m.ModelStage(Math.round(width * MODEL_SCALE), Math.round(height * MODEL_SCALE))));
+      void this.stage
+        .then(async (stage) => {
+          await stage.load(media.src, media.animations, media.show);
+          if (this.fed !== fed) return;
+          fed.el = stage.canvas;
+          fed.width = stage.canvas.width;
+          fed.height = stage.canvas.height;
+        })
+        .catch((err) => logger.warn(`couldn't show the model ${media.id}: ${errorMessage(err)}`));
+    } else if (media.kind === "stream" && fed.el instanceof HTMLVideoElement) {
       const video = fed.el;
       video.muted = true;
       video.playsInline = true;
@@ -254,9 +295,11 @@ export class MediaFeed {
     if (!fed || this.failed || !fed.width || !fed.height) return false;
     const gl = this.gl;
     if (!this.program && !this.build()) return false;
+    // A model's frame drawn now (its animation by the picture's clock, punched in on the kick, reflecting the look).
+    if (fed.model) this.stageNow?.render(seconds, hit, this.gl.canvas as HTMLCanvasElement);
     if (!this.upload(fed)) return false;
     const every = fed.looked < BACKDROP_FIRST.times ? BACKDROP_FIRST.every : BACKDROP_EVERY;
-    if (!fed.live && (!fed.backdrop || (fed.el instanceof HTMLVideoElement && this.frames % every === 0))) {
+    if (!fed.live && !fed.model && (!fed.backdrop || (fed.el instanceof HTMLVideoElement && this.frames % every === 0))) {
       // (Once its background's been seen as flat it stays so unless it's clearly not: a dancer crossing it is no change.)
       fed.backdrop = this.backdropOf(fed) ?? fed.backdrop;
       fed.looked++;
@@ -265,21 +308,24 @@ export class MediaFeed {
     const mediaAspect = fed.width / fed.height;
     const keyed = fed.backdrop?.flat ?? false;
     // A screen floats at its own shape, all of it (a 16:9 one fills the frame): its edges are where its picture is.
-    const place = fed.live ? "float" : placementOf(mediaAspect, frameAspect);
+    // A model's stage is the frame's shape (it's placed in it, and punched in, by its stage).
+    const place = fed.live ? "float" : fed.model ? "fill" : placementOf(mediaAspect, frameAspect);
     // Punched in a little on each kick.
-    const punch = 1 + 0.06 * Math.max(0, Math.min(1, hit));
+    const punch = fed.model ? 1 : 1 + 0.06 * Math.max(0, Math.min(1, hit));
     // Filling the frame, kept to its shape: the wider of the two shows less of its width.
     const fit = mediaAspect > frameAspect ? [frameAspect / mediaAspect, 1] : [1, mediaAspect / frameAspect];
-    const zoom = Math.max(1, mix.zoom) * punch;
+    const zoom = fed.model ? 1 : Math.max(1, mix.zoom) * punch;
     const contain = mediaAspect > frameAspect ? [1, frameAspect / mediaAspect] : [mediaAspect / frameAspect, 1];
     const size = (fed.live ? contain : floatSize(mediaAspect, frameAspect, mix.size)).map((v) => v * punch);
     // On a background taken out, its light is all of it (what's left is the subject). On top, footage shows only its
     // light or its edges: the look shows through its darks (all of it on top would hide the look).
     // A pale clip whose background can't be taken out washes the look out: only its outlines.
-    const pale = !keyed && (fed.backdrop?.light ?? 0) > PALE;
-    const into = pale ? "edges" : keyed && mix.mode === "light" ? "whole" : mix.mode;
+    // A model is all subject, like a clip whose background's taken out.
+    const subject = keyed || fed.model;
+    const pale = !subject && (fed.backdrop?.light ?? 0) > PALE;
+    const into = pale ? "edges" : subject && mix.mode === "light" ? "whole" : mix.mode;
     // A screen as it is (it's read as itself: its panels, its text), the look showing through as much as it isn't.
-    const onTop = fed.live ? mix.mode : pale ? "edges" : keyed ? (mix.mode === "edges" ? "edges" : "whole") : mix.mode === "whole" ? "light" : mix.mode;
+    const onTop = fed.live ? mix.mode : pale ? "edges" : subject ? (mix.mode === "edges" ? "edges" : "whole") : mix.mode === "whole" ? "light" : mix.mode;
     const gain = this.brake.gain * Math.max(0, Math.min(1, fade));
     const blend = gl.getParameter(gl.BLEND) as boolean;
     gl.useProgram(this.program);
@@ -295,6 +341,7 @@ export class MediaFeed {
     gl.uniform2f(this.uniforms.size, size[0], size[1]);
     gl.uniform1i(this.uniforms.keyed, keyed ? 1 : 0);
     gl.uniform1i(this.uniforms.boxed, fed.live ? 1 : 0);
+    gl.uniform1i(this.uniforms.cutout, fed.model ? 1 : 0);
     const bg = fed.backdrop?.color ?? [0, 0, 0];
     gl.uniform3f(this.uniforms.bg, bg[0], bg[1], bg[2]);
     gl.uniform2f(this.uniforms.texel, 1.5 / fed.width, 1.5 / fed.height);
@@ -314,8 +361,8 @@ export class MediaFeed {
     // Into the feedback (the next frame warps it in), then on top of what was shown.
     pass(renderer.targetFrameBuffer, renderer.texsizeX, renderer.texsizeY, into, amountOver(mix, hit, seconds), mix.key);
     // Footage on top: less of it, and only its brighter light (all of a frame's mids on top wash the look pale).
-    const footage = !keyed && !fed.live && onTop === "light";
-    pass(null, gl.drawingBufferWidth, gl.drawingBufferHeight, onTop, shownAt(mix, hit) * (keyed || fed.live ? 1 : FOOTAGE_ON_TOP), footage ? [0.4, 0.85] : mix.key);
+    const footage = !subject && !fed.live && onTop === "light";
+    pass(null, gl.drawingBufferWidth, gl.drawingBufferHeight, onTop, shownAt(mix, hit) * (subject || fed.live ? 1 : FOOTAGE_ON_TOP), footage ? [0.4, 0.85] : mix.key);
     // Butterchurn's state as it left it (it sets the rest itself each frame).
     gl.bindVertexArray(null);
     gl.bindTexture(gl.TEXTURE_2D, null);
@@ -334,6 +381,7 @@ export class MediaFeed {
 
   /** How the clip fed is placed: its background taken out or not (null: nothing fed, or not looked at yet). */
   get keyed(): boolean | null {
+    if (this.fed?.model) return true;
     return this.fed?.backdrop ? this.fed.backdrop.flat : null;
   }
 
@@ -358,7 +406,7 @@ export class MediaFeed {
     const gl = this.gl;
     const video = fed.el instanceof HTMLVideoElement ? fed.el : null;
     if (video && video.readyState < 2) return fed.loaded;
-    if (fed.loaded && (!video || video.currentTime === fed.taken)) return true;
+    if (fed.loaded && !fed.model && (!video || video.currentTime === fed.taken)) return true;
     const flip = gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL) as boolean;
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
@@ -393,7 +441,7 @@ export class MediaFeed {
       gl.linkProgram(program);
       if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) ?? "program");
       this.program = program;
-      for (const name of ["media", "place", "fit", "size", "texel", "amount", "mode", "key", "keyed", "boxed", "bg", "saturation", "bright"]) this.uniforms[name] = gl.getUniformLocation(program, name);
+      for (const name of ["media", "place", "fit", "size", "texel", "amount", "mode", "key", "keyed", "boxed", "cutout", "bg", "saturation", "bright"]) this.uniforms[name] = gl.getUniformLocation(program, name);
       // Its own vertex array: Butterchurn's attributes are left alone.
       this.vao = gl.createVertexArray();
       gl.bindVertexArray(this.vao);
@@ -432,5 +480,8 @@ export class MediaFeed {
 
   dispose(): void {
     this.release();
+    void this.stage?.then((stage) => stage.dispose(), () => {});
+    this.stage = null;
+    this.stageNow = null;
   }
 }

@@ -77,6 +77,10 @@ export class DataPaths {
   get browserFile() {
     return path.join(this.root, "browser.json");
   }
+  /** The visualizer's model search's keys (Poly Pizza's, Sketchfab's), as entered in the app: `ModelSearch`. */
+  get modelKeysFile() {
+    return path.join(this.root, "model-keys.json");
+  }
   /** The Serum player's library: the preset folders added to it (Settings › Music), for every project. */
   get serumLibraryFile() {
     return path.join(this.root, "serum-library.json");

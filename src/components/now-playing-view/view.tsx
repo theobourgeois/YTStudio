@@ -39,7 +39,8 @@ import type { LookVerdict, RatingVerdict } from "@shared/look-ratings";
 import { positionAt } from "@shared/now-playing";
 import { type Mood, type SongCharacter, isSlow } from "@shared/signals/mood";
 import { formatDuration } from "@shared/format";
-import type { MusicAnalysis } from "@shared/types";
+import type { MediaAsset, MusicAnalysis } from "@shared/types";
+import type { AlbumPalette } from "@shared/palette";
 import { cn } from "cn";
 import { PreviewEngine } from "@/components/preview/engine";
 import { type StageWindow, openStageWindow } from "@/components/windows/native/stage-window";
@@ -53,6 +54,8 @@ import { type Choice, LookChooser, type Moment, pickWanted, slowMotionOn, slowed
 import { EFFECTS_MODES, EffectsEngine } from "./effects-engine";
 import { LiveDirector } from "./director";
 import { type Feeding, MilkDrop } from "./milkdrop";
+import type { FedMedia } from "./media-feed";
+import { clipRole, modelLookFor } from "./model-motion";
 import { useVisualizerMedia } from "./media-library";
 import { nextSet } from "./media-sets";
 import { KickHit, type Visit, mixFor, nextVisit, pickMedia, visitFade } from "./media-mix";
@@ -135,6 +138,17 @@ function onTheBeat(rhythm: MusicAnalysis | null | undefined, after: number): num
   if (last === undefined || !rhythm?.bpm) return after;
   const beat = 60 / rhythm.bpm;
   return last + Math.ceil((after - last) / beat - 1e-6) * beat;
+}
+
+/**
+ * What the feed is given for one of the user's media, `from` seconds in: a model's look chosen for the moment
+ * (`energy`, 0..1) and lit in the cover's colours (`model-motion.ts`).
+ */
+function fedMedia(asset: MediaAsset, from: number, energy: number, palette: AlbumPalette): FedMedia {
+  if (asset.kind !== "model") return { id: asset.id, src: asset.src, kind: asset.kind === "video" ? "video" : "image", from };
+  const animations = asset.model?.animations ?? [];
+  const look = modelLookFor({ animated: animations.some((name) => clipRole(name) !== "never") }, energy, Math.random);
+  return { id: asset.id, src: asset.src, kind: "model", animations, show: { look, energy, palette } };
 }
 
 /**
@@ -338,7 +352,7 @@ export default function NowPlayingView() {
     // Not a MilkDrop look: none for it (the clip of the one going stays while that's on screen: `tick`).
     if (!milkdropPreset(lookId)) return;
     if (!again && feedingRef.current?.look === lookId) return;
-    const choices = list.map((m) => ({ id: m.asset.id, kind: m.asset.kind === "video" ? ("video" as const) : ("image" as const), duration: m.asset.duration }));
+    const choices = list.map((m) => ({ id: m.asset.id, kind: m.asset.kind === "video" || m.asset.kind === "model" ? m.asset.kind : ("image" as const), duration: m.asset.duration }));
     // One just added comes first (from its start), else one not shown lately.
     const wanted = useVisualizerMedia.getState().wanted;
     if (wanted) useVisualizerMedia.getState().setWanted(null);
@@ -346,8 +360,9 @@ export default function NowPlayingView() {
     const asset = list.find((m) => m.asset.id === picked?.id)?.asset;
     if (!picked || !asset) return;
     const mood = useNowPlaying.getState().live?.signals.mood;
-    const mix = mixFor(mood ? asHeard(mood) : { intensity: 0.5, slow: latest.current.prefs.pace < 1 ? 1 : 0 }, Math.random);
-    feedingRef.current = { look: lookId, feeding: { media: { id: asset.id, src: asset.src, kind: asset.kind === "video" ? "video" : "image", from: picked.from }, mix } };
+    const heard = mood ? asHeard(mood) : { intensity: 0.5, slow: latest.current.prefs.pace < 1 ? 1 : 0 };
+    const mix = mixFor(heard, Math.random, asset.kind === "model" ? "model" : "clip");
+    feedingRef.current = { look: lookId, feeding: { media: fedMedia(asset, picked.from, isSlow(heard) ? 0.2 : heard.intensity, latest.current.palette), mix } };
     recentMedia.current = [...recentMedia.current.filter((id) => id !== asset.id), asset.id].slice(-4);
     useVisualizerMedia.getState().setFeeding(asset.id);
     logger.debug(`${asset.name} into ${liveLook(lookId)?.name ?? lookId}'s feedback (${mix.mode}, ${picked.from} s in)`);
@@ -810,7 +825,7 @@ export default function NowPlayingView() {
   // Every setting the player plays (D), or the user's clips and pictures (one panel at a time).
   const [panel, setPanelOpen] = useState(false);
   const [mediaPanel, setMediaPanelOpen] = useState(false);
-  const [mediaTab, setMediaTab] = useState<MediaTab>("yours");
+  const [mediaTab, setMediaTab] = useState<MediaTab>("sources");
   const setPanel = (open: boolean | ((was: boolean) => boolean)) => {
     setPanelOpen(open);
     setMediaPanelOpen(false);

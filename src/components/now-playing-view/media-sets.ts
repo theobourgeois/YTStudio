@@ -21,9 +21,9 @@ export interface MediaSet {
 /** The set the clips already in the Visualizer folder go into, and the first one made. */
 export const FIRST_SET = "My clips";
 
-/** What the visualizer can feed in: a clip with a picture, or a picture. */
+/** What the visualizer can feed in: a clip with a picture, a picture, or a 3D model. */
 export const usable = (asset: MediaAsset | undefined): asset is MediaAsset =>
-  !!asset && asset.status !== "error" && (asset.kind === "image" || (asset.kind === "video" && asset.hasVideo));
+  !!asset && asset.status !== "error" && (asset.kind === "image" || asset.kind === "model" || (asset.kind === "video" && asset.hasVideo));
 
 /**
  * The sets in the Visualizer folder (`rootId`), the oldest first, each with what's in it or in its own folders; and

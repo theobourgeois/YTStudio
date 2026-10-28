@@ -13,6 +13,8 @@ import type {
   UseLibraryItemResponse,
 } from "../shared/types.ts";
 import type { MediaLibrary } from "./media.ts";
+import type { ModelSearch } from "./model-search.ts";
+import { isModelSource, modelOrigin } from "../shared/model-search.ts";
 import type { WebMediaLibrary } from "./web-media.ts";
 import { createLimiter } from "./queue.ts";
 import { type DataPaths, HttpError, isObject, isValidId, parseName, readJson, writeJson } from "./storage.ts";
@@ -51,6 +53,8 @@ export class LibraryStore {
   /** Library media that requests in flight rely on, so a deletion meanwhile doesn't collect it. */
   private held = new Map<string, number>();
   private writes = createLimiter(1);
+  /** Models being downloaded, by origin: asked for twice at once, they're downloaded once. */
+  private modelDownloads = new Map<string, Promise<MediaAsset>>();
 
   constructor(
     private paths: DataPaths,
@@ -163,11 +167,8 @@ export class LibraryStore {
     const folderId = parseFolderId(body.folderId) ?? null;
     this.folder(folderId);
     const origin = web.videoOrigin(body.url);
-    const known = this.media.list().find((m) => m.origin === origin);
-    if (known) {
-      const item = [...this.items.values()].find((i) => i.kind === "media" && i.mediaId === known.id && i.folderId === folderId);
-      return item ? { item, media: [known] } : this.addItem({ kind: "media", mediaId: known.id, name: known.name, folderId }, [known]);
-    }
+    const known = this.knownEntry(origin, folderId);
+    if (known) return known;
     const most = typeof body.most === "number" && Number.isFinite(body.most) && body.most > 0 ? Math.min(3600, body.most) : undefined;
     const download = await web.downloadVideo(body.url, { title: body.title, most });
     try {
@@ -223,6 +224,36 @@ export class LibraryStore {
     }
   }
 
+  /**
+   * A 3D model from a model site (a search's result or a starter model: `ModelSearch`) into a folder, for the
+   * visualizer; one the Library has already is that one, put in the folder if it isn't.
+   */
+  async addModel(body: unknown, models: ModelSearch): Promise<LibraryEntry> {
+    if (!isObject(body) || !isModelSource(body.source) || typeof body.id !== "string") {
+      throw new HttpError(400, "Expected { source: \"poly-pizza\" | \"sketchfab\", id, folderId }.");
+    }
+    const { source, id } = body;
+    const folderId = parseFolderId(body.folderId) ?? null;
+    this.folder(folderId);
+    const origin = modelOrigin(source, id);
+    const known = this.knownEntry(origin, folderId);
+    if (known) return known;
+    let download = this.modelDownloads.get(origin);
+    if (!download) {
+      download = (async () => {
+        const fetched = await models.download(source, id);
+        try {
+          return await this.media.addModel(fetched.file, fetched.name, null, () => true, { origin, poster: fetched.poster, credit: fetched.credit });
+        } finally {
+          await fetched.done();
+        }
+      })().finally(() => this.modelDownloads.delete(origin));
+      this.modelDownloads.set(origin, download);
+    }
+    const asset = await download;
+    return this.knownEntry(origin, folderId) ?? this.addItem({ kind: "media", mediaId: asset.id, name: asset.name, folderId }, [asset]);
+  }
+
   async updateItem(id: string, body: unknown): Promise<LibraryItem> {
     const current = this.item(id);
     if (!isObject(body)) throw new HttpError(400, "Expected { name?, folderId?, favorite? }.");
@@ -262,6 +293,7 @@ export class LibraryStore {
       const ids = new Map<string, string>();
       for (const mediaId of itemMediaIds(item)) {
         const source = this.media.get(mediaId);
+        if (source.kind === "model") throw new HttpError(400, `${source.name} is a 3D model: models are for the visualizer, not a project.`);
         const inProject = this.projectMedia.list(projectId);
         let asset = inProject.find((a) => a.origin === source.id || a.id === source.origin);
         if (!asset) {
@@ -285,6 +317,14 @@ export class LibraryStore {
   }
 
   // -------------------------------------------------------------------------
+
+  /** The item in `folderId` for the Library media from `origin` (made if the media's here but not in that folder). */
+  private knownEntry(origin: string, folderId: string | null): Promise<LibraryEntry> | null {
+    const known = this.media.list().find((m) => m.origin === origin);
+    if (!known) return null;
+    const item = [...this.items.values()].find((i) => i.kind === "media" && i.mediaId === known.id && i.folderId === folderId);
+    return item ? Promise.resolve({ item, media: [known] }) : this.addItem({ kind: "media", mediaId: known.id, name: known.name, folderId }, [known]);
+  }
 
   /** A folder by id; null is the top level. Throws 404. */
   private folder(id: string | null): LibraryFolder | null {

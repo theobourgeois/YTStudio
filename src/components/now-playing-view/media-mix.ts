@@ -96,22 +96,47 @@ const SCREEN_AMOUNTS: typeof AMOUNTS = {
   intense: { show: 0.4, showKick: 0.45, base: 0.1, kick: 0.25 },
 };
 
+/**
+ * A 3D model (`model-stage.ts`): all of it on top, plainly there (it's all subject, its background see-through), and
+ * into the feedback for trails off it; its outlines now and then, more as it gets intense (only its outlines, it's
+ * lost in a busy look's feedback: whole, it's the look's centrepiece).
+ */
+const MODEL_MODES: typeof MODES = {
+  calm: [
+    ["whole", 0.9],
+    ["edges", 0.1],
+  ],
+  groove: [
+    ["whole", 0.82],
+    ["edges", 0.18],
+  ],
+  intense: [
+    ["whole", 0.72],
+    ["edges", 0.28],
+  ],
+};
+const MODEL_AMOUNTS: typeof AMOUNTS = {
+  calm: { show: 0.92, showKick: 0.08, base: 0.1, kick: 0.08 },
+  groove: { show: 0.9, showKick: 0.1, base: 0.1, kick: 0.16 },
+  intense: { show: 0.85, showKick: 0.15, base: 0.09, kick: 0.24 },
+};
+
 const momentOf = (mood: Pick<Mood, "intensity" | "slow">) => (isSlow(mood) || mood.intensity < CALM ? "calm" : mood.intensity >= INTENSE ? "intense" : "groove");
 
 /**
  * How the clip goes in while a look shows, for the moment it's shown at (`random`: the look's own); a screen (`of`)
- * shown whole, not zoomed into.
+ * shown whole, not zoomed into; a model as its own.
  */
-export function mixFor(mood: Pick<Mood, "intensity" | "slow">, random: () => number, of: "clip" | "screen" = "clip"): MediaMix {
+export function mixFor(mood: Pick<Mood, "intensity" | "slow">, random: () => number, of: "clip" | "screen" | "model" = "clip"): MediaMix {
   const moment = momentOf(mood);
-  const modes = (of === "screen" ? SCREEN_MODES : MODES)[moment];
+  const modes = (of === "screen" ? SCREEN_MODES : of === "model" ? MODEL_MODES : MODES)[moment];
   let left = random();
   let mode: MediaMode = modes[0][0];
   for (const [m, share] of modes) {
     mode = m;
     if ((left -= share) <= 0) break;
   }
-  const { show, showKick, base, kick } = (of === "screen" ? SCREEN_AMOUNTS : AMOUNTS)[moment];
+  const { show, showKick, base, kick } = (of === "screen" ? SCREEN_AMOUNTS : of === "model" ? MODEL_AMOUNTS : AMOUNTS)[moment];
   // Edges are thin: more of them a frame.
   const scale = mode === "edges" ? 1.4 : 1;
   return {
@@ -121,8 +146,8 @@ export function mixFor(mood: Pick<Mood, "intensity" | "slow">, random: () => num
     base: base * scale,
     kick: kick * scale,
     key: mode === "edges" ? [0.12, 0.55] : mode === "light" ? [0.25, 0.65] : [0, 0],
-    zoom: of === "screen" ? 1 : Math.round((1 + random() * 0.2) * 100) / 100,
-    size: of === "screen" ? 1 : Math.round((0.62 + random() * 0.23) * 100) / 100,
+    zoom: of !== "clip" ? 1 : Math.round((1 + random() * 0.2) * 100) / 100,
+    size: of !== "clip" ? 1 : Math.round((0.62 + random() * 0.23) * 100) / 100,
     saturation: SATURATION,
   };
 }
@@ -247,10 +272,10 @@ export function floatSize(aspect: number, frameAspect: number, height: number): 
   return width > 0.92 ? [0.92, (height * 0.92) / width] : [width, height];
 }
 
-/** A clip or picture of the user's, as it's picked from. */
+/** A clip, picture or model of the user's, as it's picked from. */
 export interface MediaChoice {
   id: string;
-  kind: "video" | "image";
+  kind: "video" | "image" | "model";
   /** Seconds long (a picture: 0). */
   duration: number;
 }

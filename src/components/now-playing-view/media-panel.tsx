@@ -1,98 +1,134 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   PiArrowBendUpRight,
+  PiArrowLeft,
+  PiArrowSquareOut,
   PiCheck,
+  PiCube,
   PiFilmStrip,
   PiGlobe,
   PiImage,
+  PiKey,
   PiMagnifyingGlass,
   PiMonitor,
+  PiPackage,
   PiPencilSimple,
+  PiPersonSimpleRun,
   PiPlus,
   PiShuffle,
   PiSpinnerGap,
   PiTrash,
+  PiUploadSimple,
   PiX,
   PiXCircleFill,
 } from "react-icons/pi";
 import { formatDuration } from "@shared/format";
-import type { WebClip, WebDownloadProgress } from "@shared/types";
+import { MODEL_SITES, MODEL_SOURCES, STARTER_MODELS, modelOrigin } from "@shared/model-search";
+import type { MediaAsset, ModelResult, ModelSearchStatus, ModelSource, WebClip, WebDownloadProgress } from "@shared/types";
+import { errorMessage } from "@shared/errors";
 import { cn } from "cn";
 import { useEndOfList, useWebSearch } from "@/components/media/use-web-search";
+import { api } from "@/lib/api";
 import { LONG_TAKES, LONG_VIDEO, MEDIA_FOLDER, useVisualizerMedia } from "./media-library";
 import { newSetName } from "./media-sets";
 import { useVisualizerPrefs } from "./prefs";
 import { useVisualizerScreen } from "./screen";
+import { useModelSearch } from "./use-model-search";
 import { desktopScreens } from "@/lib/desktop";
 
-/** The panel's tabs (the view keeps which: G opens it on Screen). */
-export type MediaTab = "yours" | "online" | "screen";
+/**
+ * The panel's pages: the set's sources, and the three ways in that need one of their own (files go straight to the
+ * system's picker). The view keeps which: G opens it on Screen.
+ */
+export type MediaTab = "sources" | "online" | "models" | "screen";
 
 /**
- * The user's clips and pictures for the visualizer (docs/now-playing.md, "Your media"): what's in the Library's
- * Visualizer folder, in sets (its folders: one in use at a time), the one in the look now marked; added from here (files, or found online: the video editor's Online
- * search, its picture downloaded into the folder) or dropped on the visualizer, taken out, turned on or off, another
- * one asked for.
+ * The user's media for the visualizer (docs/now-playing.md, "Your media"): sets up top (one in use at a time, K the
+ * next), then every source in the set in use, whatever it is (a clip, a picture, a 3D model, the screen shared), the
+ * one on screen marked; one Add for all of them: files (or dropped anywhere on the visualizer), a video found online,
+ * a 3D model found on Poly Pizza or Sketchfab, a screen or window. Kept in the Library's Visualizer folder, a folder a set.
  */
 export function MediaPanel({ milkdrop, tab, onTab: setTab }: { milkdrop: boolean; tab: MediaTab; onTab: (tab: MediaTab) => void }) {
   const media = useVisualizerMedia((s) => s.media);
   const on = useVisualizerPrefs((s) => s.media);
   const screen = useVisualizerScreen((s) => s.shared);
+  const back = () => setTab("sources");
   return (
     <div
       data-media-panel
-      className="pointer-events-auto absolute top-16 right-4 bottom-36 flex w-80 flex-col rounded-lg bg-black/75 px-5 py-4 ring-1 ring-white/10 backdrop-blur-md"
+      data-page={tab}
+      className="pointer-events-auto absolute top-16 right-4 bottom-36 flex w-[22rem] flex-col overflow-hidden rounded-xl bg-black/75 ring-1 ring-white/10 backdrop-blur-md"
     >
-      <div role="tablist" aria-label="Your media" className="mb-3 grid grid-cols-3 gap-1">
-        <Choice role="tab" on={tab === "yours"} onClick={() => setTab("yours")}>
-          Yours{media.length ? ` (${media.length})` : ""}
-        </Choice>
-        <Choice role="tab" on={tab === "online"} onClick={() => setTab("online")}>
-          Online
-        </Choice>
-        <Choice role="tab" on={tab === "screen"} onClick={() => setTab("screen")}>
-          Screen{screen ? " ●" : ""}
-        </Choice>
-      </div>
+      {tab === "sources" ? (
+        <Sources onTab={setTab} />
+      ) : (
+        <>
+          <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5">
+            <button
+              type="button"
+              aria-label="Back to your media"
+              title="Back to your media"
+              onClick={back}
+              className="grid size-7 place-items-center rounded-md text-white/70 hover:bg-white/10 hover:text-white [&_svg]:size-4"
+            >
+              <PiArrowLeft />
+            </button>
+            <h2 className="text-[13px] font-medium text-white">{tab === "online" ? "Online video" : tab === "models" ? "3D models" : "Screen or window"}</h2>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col px-4 pt-3 pb-4">
+            {tab === "online" ? <Online onAdded={back} /> : tab === "models" ? <Models /> : <Screen />}
+          </div>
+        </>
+      )}
       {((on && media.length > 0) || screen) && !milkdrop && (
-        <p data-media-note className="mb-3 rounded-md bg-white/10 px-3 py-2 text-[11px] leading-4 text-white/80">
+        <p data-media-note className="mx-4 mb-3 rounded-md bg-white/10 px-3 py-2 text-[11px] leading-4 text-white/80">
           This look isn't one of MilkDrop's, so it shows none: the next MilkDrop look will (↑ ↓ to MilkDrop, or the looks menu).
         </p>
       )}
-      {tab === "yours" ? <Yours /> : tab === "online" ? <Online onAdded={() => setTab("yours")} /> : <Screen />}
     </div>
   );
 }
 
-/** What's in the set in use: on or off, the sets, each clip (the one in the look marked), add, another. */
-function Yours() {
+/** The sets, then what's in the one in use (and the screen, shared), Add and Another. */
+function Sources({ onTab }: { onTab: (tab: MediaTab) => void }) {
   const media = useVisualizerMedia((s) => s.media);
   const sets = useVisualizerMedia((s) => s.sets);
-  const feeding = useVisualizerMedia((s) => s.feeding);
+  const loaded = useVisualizerMedia((s) => s.loaded);
   const adding = useVisualizerMedia((s) => s.adding);
+  const starter = useVisualizerMedia((s) => s.starter);
+  const shared = useVisualizerScreen((s) => s.shared);
   const on = useVisualizerPrefs((s) => s.media);
   const input = useRef<HTMLInputElement>(null);
-  // A clip being moved into another set (its item).
+  const [menu, setMenu] = useState(false);
+  // A source being moved into another set (its item).
   const [moving, setMoving] = useState<string | null>(null);
   const moved = media.find((m) => m.itemId === moving);
+  const pick = () => input.current?.click();
+  const ways = { files: pick, online: () => onTab("online"), models: () => onTab("models"), screen: () => onTab("screen") };
   return (
     <>
-      <p className="mb-3 text-[11px] leading-4 text-white/55">
-        Clips and pictures in MilkDrop's looks: shown in the look (a plain background, white or black or a colour, taken out), punching on the kicks, and
-        painted into its feedback, so its trails stream off them. One at a time, another each look, from the set in use (K the next). Drop them anywhere on
-        the visualizer, or find them online. They're kept in the Library's {MEDIA_FOLDER} folder, a folder a set.
-      </p>
-      <div className="mb-3 grid grid-cols-2 gap-1">
-        <Choice on={on} onClick={() => useVisualizerPrefs.getState().setMedia(true)}>
-          In the looks
-        </Choice>
-        <Choice on={!on} onClick={() => useVisualizerPrefs.getState().setMedia(false)}>
-          Off (⇧N)
-        </Choice>
+      <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
+        <h2 className="mr-auto text-[13px] font-medium text-white">Your media</h2>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          aria-label="In the looks (⇧N)"
+          title={on ? "In MilkDrop's looks: ⇧N takes them out" : "Out of the looks: ⇧N brings them back"}
+          onClick={() => useVisualizerPrefs.getState().setMedia(!on)}
+          className="flex h-6 items-center gap-1.5 rounded-full bg-white/5 pr-1 pl-2 text-[11px] text-white/75 ring-1 ring-white/15 hover:bg-white/10"
+        >
+          {on ? "In the looks" : "Off"}
+          <span className={cn("relative h-3.5 w-6 rounded-full transition-colors", on ? "bg-white" : "bg-white/20")}>
+            <span className={cn("absolute top-0.5 size-2.5 rounded-full transition-all", on ? "left-3 bg-black" : "left-0.5 bg-white/70")} />
+          </span>
+        </button>
       </div>
-      <Sets />
+      <div className="px-4">
+        <Sets />
+      </div>
       {moved && (
-        <div data-moving className="mb-3 rounded-md bg-white/10 px-3 py-2 ring-1 ring-white/15">
+        <div data-moving className="mx-4 mb-2 rounded-md bg-white/10 px-3 py-2 ring-1 ring-white/15">
           <p className="mb-2 truncate text-[11px] text-white/75">Move {moved.asset.name} to</p>
           <div className="flex flex-wrap gap-1">
             {sets
@@ -115,56 +151,45 @@ function Yours() {
           </div>
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        {shared && <ScreenRow name={shared.name} onOpen={() => onTab("screen")} />}
         {media.length ? (
-          <div className="grid grid-cols-3 gap-1.5">
+          <ul aria-label="Sources" className="flex flex-col gap-0.5">
             {media.map(({ itemId, asset }) => (
-              <div
-                key={itemId}
-                data-media={asset.id}
-                data-feeding={asset.id === feeding || undefined}
-                title={asset.name}
-                className={cn("group relative aspect-video overflow-hidden rounded bg-white/5 ring-1", asset.id === feeding ? "ring-white" : "ring-white/10")}
-              >
-                {(asset.poster ?? (asset.kind === "image" ? asset.src : null)) && (
-                  <img src={asset.poster ?? asset.src} alt="" draggable={false} className="size-full object-cover" />
-                )}
-                <span className="absolute bottom-0.5 left-1 text-white/80 drop-shadow [&_svg]:size-3">{asset.kind === "video" ? <PiFilmStrip /> : <PiImage />}</span>
-                {sets.length > 1 && (
-                  <button
-                    type="button"
-                    aria-label={`Move ${asset.name} to another set`}
-                    title="Move it to another set"
-                    onClick={() => setMoving(itemId)}
-                    className="absolute top-0.5 left-0.5 hidden size-5 place-items-center rounded bg-black/70 text-white/85 group-hover:grid hover:bg-black [&_svg]:size-3"
-                  >
-                    <PiArrowBendUpRight />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  aria-label={`Take ${asset.name} out`}
-                  title="Take it out (it's deleted from the Library)"
-                  onClick={() => void useVisualizerMedia.getState().remove(itemId)}
-                  className="absolute top-0.5 right-0.5 hidden size-5 place-items-center rounded bg-black/70 text-white/85 group-hover:grid hover:bg-black [&_svg]:size-3"
-                >
-                  <PiX />
-                </button>
-              </div>
+              <SourceRow key={itemId} asset={asset} canMove={sets.length > 1} onMove={() => setMoving(itemId)} onRemove={() => void useVisualizerMedia.getState().remove(itemId)} />
             ))}
-          </div>
+          </ul>
         ) : (
-          <p className="rounded-md bg-white/5 px-3 py-4 text-center text-[12px] text-white/60 ring-1 ring-white/10">
-            {sets.length ? "Nothing in this set yet: add a few clips or pictures." : "Nothing yet: add a few clips or pictures."}
-          </p>
+          loaded && !starter && (
+            <div className="mx-2 mt-1 rounded-lg bg-white/5 px-3 py-4 text-center ring-1 ring-white/10">
+              <p className="text-[12px] text-white/70">{sets.length ? "Nothing in this set yet." : "Nothing yet."}</p>
+              <p className="mt-1 text-[11px] leading-4 text-white/50">
+                Clips, pictures and 3D models melt into MilkDrop's looks, one at a time, punching on the kicks with trails streaming off them.
+              </p>
+              <div className="mt-3 grid grid-cols-2 gap-1.5">
+                <Way icon={<PiUploadSimple />} name="Files" onClick={ways.files} />
+                <Way icon={<PiCube />} name="3D models" onClick={ways.models} />
+                <Way icon={<PiGlobe />} name="Online video" onClick={ways.online} />
+                <Way icon={<PiMonitor />} name="Screen" onClick={ways.screen} />
+              </div>
+            </div>
+          )
         )}
+        {starter && <StarterProgress done={starter.done} total={starter.total} />}
       </div>
-      {adding > 0 && <p className="mt-2 text-[11px] text-white/60">Adding {adding}…</p>}
-      <div className="mt-3 grid grid-cols-2 gap-1">
-        <Button onClick={() => input.current?.click()}>
+      {adding > 0 && <p className="px-4 pb-1 text-[11px] text-white/60">Adding {adding}…</p>}
+      <div className="relative grid grid-cols-[1fr_auto] gap-1.5 border-t border-white/10 px-4 py-3">
+        {menu && <AddMenu ways={ways} onClose={() => setMenu(false)} />}
+        <button
+          type="button"
+          aria-expanded={menu}
+          aria-haspopup="menu"
+          onClick={() => setMenu((m) => !m)}
+          className="flex h-8 items-center justify-center gap-1.5 rounded-md bg-white text-[12px] font-medium text-black hover:bg-white/90 [&_svg]:size-3.5"
+        >
           <PiPlus />
-          Add files
-        </Button>
+          Add
+        </button>
         <Button disabled={!media.length || !on} onClick={() => useVisualizerPrefs.getState().requestNextMedia()}>
           <PiShuffle />
           Another (N)
@@ -174,8 +199,8 @@ function Yours() {
         ref={input}
         type="file"
         multiple
-        accept="video/*,image/*"
-        aria-label="Add clips or pictures"
+        accept="video/*,image/*,.glb,model/gltf-binary"
+        aria-label="Add files: clips, pictures or 3D models"
         className="hidden"
         onChange={(e) => {
           const files = [...(e.target.files ?? [])];
@@ -184,6 +209,450 @@ function Yours() {
         }}
       />
     </>
+  );
+}
+
+/** Add's menu: the four ways in, over the footer (Escape or a click elsewhere closes it). */
+function AddMenu({ ways, onClose }: { ways: Record<"files" | "online" | "models" | "screen", () => void>; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const away = (e: PointerEvent) => !ref.current?.parentElement?.contains(e.target as Node) && onClose();
+    const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("pointerdown", away, true);
+    window.addEventListener("keydown", key, true);
+    return () => {
+      window.removeEventListener("pointerdown", away, true);
+      window.removeEventListener("keydown", key, true);
+    };
+  }, [onClose]);
+  const item = (way: keyof typeof ways, icon: React.ReactNode, name: string, line: string) => (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={() => {
+        onClose();
+        ways[way]();
+      }}
+      className="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left hover:bg-white/10"
+    >
+      <span className="grid size-8 shrink-0 place-items-center rounded-md bg-white/10 text-white [&_svg]:size-4">{icon}</span>
+      <span className="min-w-0">
+        <span className="block text-[12px] text-white">{name}</span>
+        <span className="block truncate text-[11px] text-white/50">{line}</span>
+      </span>
+    </button>
+  );
+  return (
+    <div ref={ref} role="menu" aria-label="Add" className="absolute right-4 bottom-full left-4 mb-1 rounded-lg bg-neutral-900/95 p-1 shadow-2xl ring-1 ring-white/15 backdrop-blur-md">
+      {item("files", <PiUploadSimple />, "Files…", "Videos, pictures, .glb models (or drop them)")}
+      {item("online", <PiGlobe />, "Online video", "YouTube, or a link from TikTok, X…")}
+      {item("models", <PiCube />, "3D models", "Characters, animals, things: Poly Pizza, Sketchfab")}
+      {item("screen", <PiMonitor />, "Screen or window", "A program as you work in it, a game…")}
+    </div>
+  );
+}
+
+function Way({ icon, name, onClick }: { icon: React.ReactNode; name: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-8 items-center justify-center gap-1.5 rounded-md bg-white/10 text-[11px] text-white/85 ring-1 ring-white/15 hover:bg-white/15 [&_svg]:size-3.5"
+    >
+      {icon}
+      {name}
+    </button>
+  );
+}
+
+/** What a source is, in a word or two (a model: whether it moves). */
+function kindOf(asset: MediaAsset): { icon: React.ReactNode; label: string } {
+  if (asset.kind === "model") {
+    const moves = (asset.model?.animations.length ?? 0) > 0;
+    return { icon: moves ? <PiPersonSimpleRun /> : <PiCube />, label: moves ? "3D · animated" : "3D" };
+  }
+  if (asset.kind === "video") return { icon: <PiFilmStrip />, label: asset.duration > 0 ? `Video · ${formatDuration(asset.duration)}` : "Video" };
+  return { icon: <PiImage />, label: "Picture" };
+}
+
+/** One of the set's sources: its picture, its name, what it is (a model's credit), on screen or not; moved, taken out. */
+function SourceRow({ asset, canMove, onMove, onRemove }: { asset: MediaAsset; canMove: boolean; onMove: () => void; onRemove: () => void }) {
+  const feeding = useVisualizerMedia((s) => s.feeding === asset.id);
+  const picture = asset.poster ?? (asset.kind === "image" ? asset.src : null);
+  const kind = kindOf(asset);
+  const credit = asset.model?.credit;
+  return (
+    <li
+      data-media={asset.id}
+      data-kind={asset.kind}
+      data-feeding={feeding || undefined}
+      className={cn("group flex min-w-0 items-center gap-2.5 rounded-lg p-1.5 hover:bg-white/5", feeding && "bg-white/10 hover:bg-white/10")}
+    >
+      <span
+        className={cn(
+          "relative grid aspect-video w-16 shrink-0 place-items-center overflow-hidden rounded-md ring-1",
+          asset.kind === "model" ? "bg-[radial-gradient(circle_at_50%_40%,rgba(255,255,255,0.18),rgba(255,255,255,0.02)_70%)]" : "bg-white/5",
+          feeding ? "ring-white" : "ring-white/10",
+        )}
+      >
+        {picture ? (
+          <img src={picture} alt="" draggable={false} className={cn("size-full", asset.kind === "model" ? "object-contain p-0.5" : "object-cover")} />
+        ) : (
+          <span className="text-white/40 [&_svg]:size-4">{kind.icon}</span>
+        )}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[12px] leading-4 text-white/90" title={asset.name}>
+          {asset.name}
+        </span>
+        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-[10.5px] leading-4 text-white/50">
+          <span className="flex shrink-0 items-center gap-1 rounded bg-white/10 px-1 text-white/70 [&_svg]:size-2.5">
+            {kind.icon}
+            {kind.label}
+          </span>
+          {credit && (
+            <span className="truncate" title={`${credit.title} by ${credit.author}, ${credit.licence} (${credit.url})`}>
+              {credit.author} · {credit.licence}
+            </span>
+          )}
+        </span>
+      </span>
+      {feeding && (
+        <span title="In the look now" className="mr-1 flex shrink-0 items-center gap-1 text-[10px] font-medium tracking-wide text-white uppercase group-hover:hidden">
+          <span className="size-1.5 animate-pulse rounded-full bg-white" />
+          On
+        </span>
+      )}
+      <span className="hidden shrink-0 items-center gap-0.5 group-hover:flex group-focus-within:flex">
+        {canMove && (
+          <RowButton label={`Move ${asset.name} to another set`} onClick={onMove}>
+            <PiArrowBendUpRight />
+          </RowButton>
+        )}
+        <RowButton label={`Take ${asset.name} out`} title="Take it out (it's deleted from the Library)" onClick={onRemove}>
+          <PiX />
+        </RowButton>
+      </span>
+    </li>
+  );
+}
+
+/** The screen shared, as a source above the set's (its page has the picture and Stop). */
+function ScreenRow({ name, onOpen }: { name: string; onOpen: () => void }) {
+  return (
+    <button type="button" data-screen-row onClick={onOpen} className="mb-0.5 flex w-full min-w-0 items-center gap-2.5 rounded-lg p-1.5 text-left hover:bg-white/5">
+      <span className="grid aspect-video w-16 shrink-0 place-items-center rounded-md bg-red-500/15 text-red-300 ring-1 ring-red-400/40 [&_svg]:size-4">
+        <PiMonitor />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[12px] leading-4 text-white/90">{name}</span>
+        <span className="mt-0.5 flex items-center gap-1 text-[10.5px] leading-4 text-white/50">
+          <span className="rounded bg-red-500/25 px-1 text-red-200">Screen · live</span>
+          shown whole, your media over it now and then
+        </span>
+      </span>
+      <span className="mr-1 size-2 shrink-0 animate-pulse rounded-full bg-red-500" />
+    </button>
+  );
+}
+
+function StarterProgress({ done, total }: { done: number; total: number }) {
+  return (
+    <div data-starter className="mx-2 mt-2 rounded-lg bg-white/5 px-3 py-2.5 ring-1 ring-white/10">
+      <p className="flex items-center gap-1.5 text-[11px] text-white/75 [&_svg]:size-3.5">
+        <PiPackage />
+        <span className="mr-auto">The starter pack is coming in</span>
+        <span className="font-mono text-[10px] text-white/55 tabular-nums">
+          {done}/{total}
+        </span>
+      </p>
+      <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
+        <div className="h-full rounded-full bg-white transition-[width] duration-500" style={{ width: `${(done / Math.max(1, total)) * 100}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function RowButton({ label, title, onClick, children }: { label: string; title?: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={title ?? label}
+      onClick={onClick}
+      className="grid size-6 place-items-center rounded-md text-white/65 hover:bg-white/15 hover:text-white [&_svg]:size-3.5"
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * 3D models (`server/model-search.ts`): Poly Pizza's (low-poly, mostly CC0: Quaternius's animated characters and
+ * animals) or Sketchfab's (free to download, under Creative Commons), searched as typed, those that move marked;
+ * before anything's typed, the starter pack. Each comes into the set in use with its credit, and is shown next.
+ */
+function Models() {
+  const [query, setQuery] = useState("");
+  const [source, setSource] = useState<ModelSource>("poly-pizza");
+  const [animated, setAnimated] = useState(false);
+  const [status, setStatus] = useState<ModelSearchStatus | null>(null);
+  // Searched again once a key's saved.
+  const [generation, setGeneration] = useState(0);
+  const sets = useVisualizerMedia((s) => s.sets);
+  const adding = useVisualizerMedia((s) => s.modelsAdding);
+  const starter = useVisualizerMedia((s) => s.starter);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => input.current?.focus(), []);
+  useEffect(() => {
+    api.getModelSearch().then(setStatus, () => {});
+  }, []);
+  const site = status?.sources.find((s) => s.source === source);
+  const search = useModelSearch(site?.searchable === false ? "" : query, source, animated, generation);
+  // What's in any set already (by where it came from).
+  const have = useMemo(() => new Set(sets.flatMap((s) => s.media.map((m) => m.asset.origin))), [sets]);
+  const results = search.status === "loading" || search.status === "done" ? search.results : [];
+  const end = useEndOfList(search.loadMore, search.status === "done" && search.more && !search.loadingMore && !search.moreError, results.length);
+  const needsKey = site && (!site.searchable || !site.downloadable);
+  const starters = STARTER_MODELS.filter((m) => !animated || m.animated);
+  const starterLeft = STARTER_MODELS.filter((m) => !have.has(modelOrigin(m.source, m.id))).length;
+  const card = (result: ModelResult) => {
+    const origin = modelOrigin(result.source, result.id);
+    return <ModelCard key={origin} result={result} adding={!!adding[origin]} added={have.has(origin)} onAdd={() => void useVisualizerMedia.getState().addModel(result)} />;
+  };
+  return (
+    <>
+      <div className="mb-2 flex items-center gap-1">
+        <div role="radiogroup" aria-label="Where to search" className="flex flex-1 gap-1">
+          {MODEL_SOURCES.map((s) => (
+            <Chip key={s} role="radio" on={s === source} onClick={() => setSource(s)}>
+              {MODEL_SITES[s].name}
+            </Chip>
+          ))}
+        </div>
+        <button
+          type="button"
+          aria-pressed={animated}
+          title="Only models that move (characters and animals, dancing, flying, running)"
+          onClick={() => setAnimated((a) => !a)}
+          className={cn(
+            "flex h-6 items-center gap-1 rounded px-2 text-[11px] ring-1 ring-white/15 [&_svg]:size-3",
+            animated ? "bg-white text-black" : "bg-white/5 text-white/75 hover:bg-white/10",
+          )}
+        >
+          <PiPersonSimpleRun />
+          Animated
+        </button>
+      </div>
+      <div className="relative mb-3">
+        <PiMagnifyingGlass className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-white/50" />
+        <input
+          ref={input}
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={`Search ${MODEL_SITES[source].name}: a robot, a donut, a cat…`}
+          aria-label="Search for 3D models"
+          spellCheck={false}
+          className="h-8 w-full rounded-md bg-white/10 pr-8 pl-8 text-[13px] text-white ring-1 ring-white/15 outline-none placeholder:text-white/40 focus:ring-white/40 [&::-webkit-search-cancel-button]:hidden"
+        />
+        {search.status === "loading" ? (
+          <PiSpinnerGap className="absolute top-1/2 right-2.5 size-3.5 -translate-y-1/2 animate-spin text-white/60" />
+        ) : (
+          query && (
+            <button
+              type="button"
+              aria-label="Clear the search"
+              onClick={() => {
+                setQuery("");
+                input.current?.focus();
+              }}
+              className="absolute top-1/2 right-2 grid size-4 -translate-y-1/2 place-items-center text-white/50 hover:text-white"
+            >
+              <PiXCircleFill className="size-4" />
+            </button>
+          )
+        )}
+      </div>
+      {needsKey && site && (
+        <KeyField
+          source={source}
+          why={site.searchable ? "to download its models" : "to search"}
+          onSaved={(next) => {
+            setStatus(next);
+            setGeneration((g) => g + 1);
+          }}
+        />
+      )}
+      <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
+        {!query.trim() || site?.searchable === false ? (
+          <>
+            <div className="mb-2 flex items-center gap-2">
+              <p className="mr-auto text-[11px] text-white/55">
+                The starter pack <span className="text-white/35">· free, CC licensed</span>
+              </p>
+              {starter ? (
+                <span className="flex items-center gap-1 text-[11px] text-white/60">
+                  <PiSpinnerGap className="size-3 animate-spin" />
+                  {starter.done}/{starter.total}
+                </span>
+              ) : (
+                starterLeft > 0 && (
+                  <button type="button" onClick={() => void useVisualizerMedia.getState().addStarter()} className="text-[11px] text-white/75 underline-offset-2 hover:text-white hover:underline">
+                    Add all {starterLeft} as a set
+                  </button>
+                )
+              )}
+            </div>
+            <ul aria-label="The starter pack" className="grid grid-cols-3 gap-1.5">
+              {starters.map(card)}
+            </ul>
+          </>
+        ) : search.status === "error" ? (
+          <Hint>{search.message}</Hint>
+        ) : search.status === "done" && results.length === 0 ? (
+          <Hint>
+            Nothing on {MODEL_SITES[source].name} matched “{query.trim()}”{animated ? " that moves" : ""}. Try other words
+            {source === "poly-pizza" ? ", or Sketchfab" : ""}.
+          </Hint>
+        ) : (
+          <ul aria-label="Results" aria-busy={search.status === "loading"} className={cn("grid grid-cols-3 gap-1.5 transition-opacity", search.status === "loading" && "opacity-60")}>
+            {results.map(card)}
+          </ul>
+        )}
+        {search.status === "done" && query.trim() && (search.more || search.moreError) && (
+          <div ref={end} className="flex h-9 items-center justify-center gap-1.5 text-[11px] text-white/55">
+            {search.moreError ? (
+              <button type="button" className="underline hover:text-white" onClick={search.loadMore}>
+                Couldn't load more: try again
+              </button>
+            ) : (
+              <>
+                <PiSpinnerGap className="size-3.5 animate-spin" />
+                Loading more…
+              </>
+            )}
+          </div>
+        )}
+        <p className="mt-3 text-[10.5px] leading-4 text-white/40">
+          Each comes with its maker's name and licence, kept beside it. A .glb of your own goes in through Files.
+        </p>
+      </div>
+    </>
+  );
+}
+
+/** One model to add: its picture, whether it moves, who made it; + puts it in the set in use. */
+function ModelCard({ result, adding, added, onAdd }: { result: ModelResult; adding: boolean; added: boolean; onAdd: () => void }) {
+  const [broken, setBroken] = useState(false);
+  const label = adding ? `Adding ${result.title}…` : added ? `${result.title}: in the visualizer` : `Add ${result.title}`;
+  return (
+    <li data-model={modelOrigin(result.source, result.id)} className="group relative min-w-0">
+      <button
+        type="button"
+        aria-label={label}
+        title={`${result.title} by ${result.author} (${result.licence})${added ? ": in the visualizer" : ""}`}
+        disabled={adding || added}
+        onClick={onAdd}
+        className={cn(
+          "block w-full overflow-hidden rounded-lg bg-[radial-gradient(circle_at_50%_38%,rgba(255,255,255,0.2),rgba(255,255,255,0.03)_72%)] text-left ring-1 transition hover:ring-white/50 disabled:cursor-default",
+          added ? "ring-white/60" : "ring-white/10",
+        )}
+      >
+        <span className="relative block aspect-square">
+          {result.thumbnail && !broken ? (
+            <img
+              src={result.thumbnail}
+              alt=""
+              loading="lazy"
+              draggable={false}
+              referrerPolicy="no-referrer"
+              onError={() => setBroken(true)}
+              className="size-full object-contain p-1 transition-transform duration-300 group-hover:scale-110"
+            />
+          ) : (
+            <span className="grid size-full place-items-center text-white/30">
+              <PiCube className="size-6" />
+            </span>
+          )}
+          {result.animated && (
+            <span title="Animated" className="absolute top-1 left-1 flex items-center gap-0.5 rounded bg-black/65 px-1 py-px text-[9px] font-medium text-white [&_svg]:size-2.5">
+              <PiPersonSimpleRun />
+              Moves
+            </span>
+          )}
+          <span
+            className={cn(
+              "absolute right-1 bottom-1 grid size-6 place-items-center rounded-full shadow-lg [&_svg]:size-3.5",
+              added ? "bg-white text-black" : adding ? "bg-black/70 text-white" : "bg-black/70 text-white opacity-0 group-hover:opacity-100",
+            )}
+          >
+            {adding ? <PiSpinnerGap className="animate-spin" /> : added ? <PiCheck /> : <PiPlus />}
+          </span>
+        </span>
+        <span className="block px-1.5 pt-1 pb-1.5">
+          <span className="block truncate text-[11px] leading-4 text-white/90">{result.title}</span>
+          <span className="block truncate text-[9.5px] leading-3 text-white/45">{result.author}</span>
+        </span>
+      </button>
+    </li>
+  );
+}
+
+/** A site's key, pasted in: kept by the server (never sent back), searched with at once. */
+function KeyField({ source, why, onSaved }: { source: ModelSource; why: string; onSaved: (status: ModelSearchStatus) => void }) {
+  const site = MODEL_SITES[source];
+  const [key, setKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  return (
+    <form
+      data-model-key
+      className="mb-3 rounded-lg bg-white/5 p-2.5 ring-1 ring-white/15"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!key.trim()) return;
+        setSaving(true);
+        api.setModelKey(source, key.trim()).then(
+          (status) => {
+            setSaving(false);
+            setKey("");
+            setError(null);
+            onSaved(status);
+          },
+          (err) => {
+            setSaving(false);
+            setError(errorMessage(err));
+          },
+        );
+      }}
+    >
+      <p className="mb-2 flex items-center gap-1.5 text-[11px] leading-4 text-white/75 [&_svg]:size-3.5">
+        <PiKey className="shrink-0" />
+        <span>
+          {site.name} needs your {site.keyName} {why} (free).{" "}
+          <a href={site.keyPage} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-white underline-offset-2 hover:underline [&_svg]:size-3">
+            Get one
+            <PiArrowSquareOut />
+          </a>
+        </span>
+      </p>
+      <div className="flex gap-1">
+        <input
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          placeholder={`Paste your ${site.keyName}`}
+          aria-label={`${site.name}'s ${site.keyName}`}
+          spellCheck={false}
+          autoComplete="off"
+          className="h-7 min-w-0 flex-1 rounded bg-white/10 px-2 font-mono text-[11px] text-white ring-1 ring-white/20 outline-none placeholder:font-sans placeholder:text-white/35 focus:ring-white/50"
+        />
+        <button type="submit" disabled={saving || !key.trim()} className="h-7 rounded bg-white px-2.5 text-[11px] font-medium text-black disabled:opacity-40">
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+      {error && <p className="mt-1.5 text-[11px] text-red-300">{error}</p>}
+    </form>
   );
 }
 
@@ -601,21 +1070,6 @@ function Button({ disabled, onClick, children }: { disabled?: boolean; onClick: 
       disabled={disabled}
       onClick={onClick}
       className="flex h-8 items-center justify-center gap-1.5 rounded-md bg-white/10 text-[12px] text-white/85 ring-1 ring-white/15 hover:bg-white/15 disabled:opacity-40 [&_svg]:size-3.5"
-    >
-      {children}
-    </button>
-  );
-}
-
-function Choice({ on, onClick, role, children }: { on: boolean; onClick: () => void; role?: "tab"; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      role={role}
-      aria-pressed={role ? undefined : on}
-      aria-selected={role ? on : undefined}
-      onClick={onClick}
-      className={cn("h-7 rounded text-[11px] ring-1 ring-white/15", on ? "bg-white text-black" : "bg-white/5 text-white/75 hover:bg-white/10")}
     >
       {children}
     </button>

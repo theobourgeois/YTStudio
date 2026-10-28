@@ -2,7 +2,8 @@ import { create } from "zustand";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import { sameName } from "@shared/library";
-import type { Library, LibraryEntry, WebClip, WebDownloadProgress } from "@shared/types";
+import { STARTER_MODELS, STARTER_SET, modelOrigin } from "@shared/model-search";
+import type { Library, LibraryEntry, ModelResult, WebClip, WebDownloadProgress } from "@shared/types";
 import { api } from "@/lib/api";
 import { log } from "@/lib/log";
 import { FIRST_SET, type MediaSet, type VisualizerMedia, currentSet, readSets, usable } from "./media-sets";
@@ -16,6 +17,8 @@ export const MEDIA_FOLDER = "Visualizer";
 
 /** Where the set in use is kept (its folder's id). */
 const SET_KEY = "editor-visualizer-media-set";
+/** Set once the starter pack has been offered (it's downloaded once, the first time the visualizer opens). */
+const STARTER_KEY = "editor-visualizer-starter-pack";
 
 interface VisualizerMediaState {
   /** The sets of clips (folders in the Visualizer folder), the oldest first. */
@@ -39,6 +42,17 @@ interface VisualizerMediaState {
   fromWeb: Record<string, string>;
   /** An online clip's picture downloaded into the folder (a long video's first minutes), and shown next. */
   addOnline(clip: WebClip): Promise<void>;
+  /** 3D models being downloaded into the folder, by their origin (`modelOrigin`). */
+  modelsAdding: Record<string, true>;
+  /** A model search's result (or a starter model) downloaded into the set in use, and shown next. */
+  addModel(result: ModelResult): Promise<void>;
+  /** The starter pack coming in: how many of its models are in, of how many (null when it isn't). */
+  starter: { done: number; total: number } | null;
+  /**
+   * The starter pack (`STARTER_MODELS`) downloaded into a set of its own, one model at a time; used at once if the set in
+   * use is empty. Those it has already are skipped.
+   */
+  addStarter(): Promise<void>;
   /** The sets and their clips and pictures, from the Library (those in no set moved into the first: `FIRST_SET`). */
   load(): Promise<void>;
   /** Files added to the set in use (clips and pictures; anything else is left out, said so). */
@@ -61,9 +75,9 @@ export const LONG_TAKES = 4 * 60;
 /** How often an online clip's download is asked how far it's got (ms). */
 const PROGRESS_MS = 600;
 
-/** A file that looks like a clip or a picture (its type, else its name). */
+/** A file that looks like a clip, a picture or a 3D model (its type, else its name). */
 export const isVisual = (file: Pick<File, "type" | "name">) =>
-  /^(video|image)\//.test(file.type) || /\.(mp4|m4v|mov|webm|mkv|avi|gif|png|jpe?g|webp|heic|avif|bmp|tiff?)$/i.test(file.name);
+  /^(video|image)\/|^model\/gltf-binary$/.test(file.type) || /\.(mp4|m4v|mov|webm|mkv|avi|gif|png|jpe?g|webp|heic|avif|bmp|tiff?|glb)$/i.test(file.name);
 
 const rootOf = (library: Library) => library.folders.find((f) => f.parentId === null && sameName(f.name, MEDIA_FOLDER))?.id ?? null;
 
@@ -100,12 +114,31 @@ export const useVisualizerMedia = create<VisualizerMediaState>((set, get) => {
     set((s) => withSets([...s.sets, { id: folder.id, name: folder.name, media: [] }], folder.id));
     return folder.id;
   };
-  /** One added to a set: shown next. */
-  const added = (setId: string, media: VisualizerMedia) =>
+  /** One added to a set: shown next (unless `quietly`, as the starter pack's are). */
+  const added = (setId: string, media: VisualizerMedia, quietly = false) =>
     set((s) => ({
       ...changed(s.sets, s.setId, (list, it) => (it.id === setId && !list.some((m) => m.itemId === media.itemId) ? [...list, media] : list)),
-      wanted: media.asset.id,
+      ...(!quietly && { wanted: media.asset.id }),
     }));
+  /** A model downloaded into a set (the server has each only once: one it had is moved into this set). */
+  const fetchModel = async (result: ModelResult, folder: string, quietly: boolean) => {
+    const origin = modelOrigin(result.source, result.id);
+    set((s) => ({ modelsAdding: { ...s.modelsAdding, [origin]: true } }));
+    try {
+      const entry = await api.addModelToLibrary({ source: result.source, id: result.id, folderId: folder });
+      const asset = entry.item.kind === "media" ? entry.media.find((m) => m.id === (entry.item as { mediaId: string }).mediaId) : undefined;
+      if (!usable(asset)) throw new Error("it isn't a model the visualizer can show");
+      set((s) => changed(s.sets, s.setId, (list) => list.filter((m) => m.itemId !== entry.item.id)));
+      added(folder, { itemId: entry.item.id, asset }, quietly);
+      logger.info(`added the model ${result.title} (${result.source}) to the visualizer's media`);
+    } finally {
+      set((s) => {
+        const modelsAdding = { ...s.modelsAdding };
+        delete modelsAdding[origin];
+        return { modelsAdding };
+      });
+    }
+  };
   return {
     sets: [],
     setId: null,
@@ -122,6 +155,52 @@ export const useVisualizerMedia = create<VisualizerMediaState>((set, get) => {
     },
     downloads: {},
     fromWeb: {},
+    modelsAdding: {},
+    async addModel(result) {
+      const origin = modelOrigin(result.source, result.id);
+      if (get().modelsAdding[origin]) return;
+      try {
+        await fetchModel(result, await intoSet(), false);
+      } catch (err) {
+        toast.error(`Couldn't add ${result.title}: ${errorMessage(err)}`);
+        logger.warn(`couldn't add the model ${origin} to the visualizer's media: ${errorMessage(err)}`);
+      }
+    },
+    starter: null,
+    async addStarter() {
+      if (get().starter) return;
+      localStorage.setItem(STARTER_KEY, "1");
+      if (!get().loaded) await get().load();
+      const have = new Set(get().sets.flatMap((s) => s.media.map((m) => m.asset.origin)));
+      const wanted = STARTER_MODELS.filter((m) => !have.has(modelOrigin(m.source, m.id)));
+      if (!wanted.length) return;
+      set({ starter: { done: 0, total: wanted.length } });
+      let failed = 0;
+      try {
+        const existing = get().sets.find((s) => sameName(s.name, STARTER_SET));
+        const folder = existing?.id ?? (await api.createLibraryFolder({ name: STARTER_SET, parentId: await rootId() })).id;
+        if (!existing) {
+          const empty = !get().media.length;
+          set((s) => withSets([...s.sets, { id: folder, name: STARTER_SET, media: [] }], empty ? folder : s.setId));
+          if (empty) localStorage.setItem(SET_KEY, folder);
+        }
+        for (const model of wanted) {
+          try {
+            await fetchModel(model, folder, true);
+          } catch (err) {
+            failed++;
+            logger.warn(`couldn't add the starter model ${model.title}: ${errorMessage(err)}`);
+          }
+          set((s) => ({ starter: s.starter && { ...s.starter, done: s.starter.done + 1 } }));
+        }
+        if (failed) toast.error(`${failed} of the starter pack's models couldn't be downloaded: Add › 3D models tries again.`);
+        logger.info(`the starter pack is in (${wanted.length - failed} models)`);
+      } catch (err) {
+        toast.error(`Couldn't add the starter pack: ${errorMessage(err)}`);
+      } finally {
+        set({ starter: null });
+      }
+    },
     async addOnline(clip) {
       const url = clip.url;
       if (url in get().downloads) return;
@@ -170,11 +249,19 @@ export const useVisualizerMedia = create<VisualizerMediaState>((set, get) => {
         set({ ...withSets(sets, get().setId ?? localStorage.getItem(SET_KEY)), loaded: true });
       } catch (err) {
         logger.warn(`couldn't read the visualizer's media: ${errorMessage(err)}`);
+        return;
+      }
+      // The first time: the starter pack, in the background (when the server offers it: not in the e2e tests).
+      if (!localStorage.getItem(STARTER_KEY) && !get().starter) {
+        api.getModelSearch().then(
+          (status) => (status.starter ? void get().addStarter() : localStorage.setItem(STARTER_KEY, "1")),
+          () => {},
+        );
       }
     },
     async add(files) {
       const visual = files.filter(isVisual);
-      if (visual.length < files.length) toast.message(`Only clips and pictures go into the visualizer: ${files.length - visual.length} left out.`);
+      if (visual.length < files.length) toast.message(`Only clips, pictures and 3D models (.glb) go into the visualizer: ${files.length - visual.length} left out.`);
       if (!visual.length) return;
       set((s) => ({ adding: s.adding + visual.length }));
       try {

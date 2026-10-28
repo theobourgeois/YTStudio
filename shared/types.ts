@@ -13,7 +13,8 @@ import type { ToolResult } from "./tool-spec.ts";
 // Media library
 // ---------------------------------------------------------------------------
 
-export type AssetKind = "video" | "audio" | "image";
+/** `model`: a 3D model (`.glb`), for the visualizer only (docs/now-playing.md): it lives in the Library, never in a project. */
+export type AssetKind = "video" | "audio" | "image" | "model";
 
 /** `processing` = probed and usable, but filmstrip/waveform still generating. */
 export type AssetStatus = "processing" | "ready" | "error";
@@ -81,11 +82,37 @@ export interface MediaAsset {
    * absent for other kinds, and for images imported without it.
    */
   image?: ImageInfo;
+  /** What a 3D model holds and who made it (kind "model" only). */
+  model?: ModelInfo;
   /**
    * Not a file: a nested sequence of the project, standing in for media so its clips can be
    * trimmed, retimed and placed like a video's (see `sequenceAsset`). Never sent to the server.
    */
   sequence?: true;
+}
+
+/** A 3D model's contents (read by `readGlb`, `shared/model-file.ts`) and, when it came from a model site, its credit. */
+export interface ModelInfo {
+  /** Its animations' names ("" for an unnamed one): none for a model that only sits there. */
+  animations: string[];
+  triangles: number;
+  /** Has a skeleton: a character or an animal. */
+  skinned: boolean;
+  credit?: ModelCredit;
+}
+
+/** The sites the visualizer's model search looks in (`shared/model-search.ts`). */
+export type ModelSource = "poly-pizza" | "sketchfab";
+
+/** Who made a model and on what terms: shown beside it, as Creative Commons asks. */
+export interface ModelCredit {
+  source: ModelSource;
+  title: string;
+  author: string;
+  /** "CC0 1.0", "CC-BY 3.0", "CC Attribution-NonCommercial"... */
+  licence: string;
+  /** Its page on the site. */
+  url: string;
 }
 
 /** An image file's samples as stored (validated by `normalizeImageInfo`, `shared/media.ts`). */
@@ -906,6 +933,61 @@ export interface AddWebToLibraryRequest {
   most?: number;
 }
 
+/** A model search's result (`GET /api/models/search`): enough to show it and add it. */
+export interface ModelResult {
+  source: ModelSource;
+  /** The site's own id. */
+  id: string;
+  title: string;
+  author: string;
+  licence: string;
+  /** A picture of it (served by the site). */
+  thumbnail: string | null;
+  animated: boolean;
+  triangles: number | null;
+  /** The file's size in bytes, when the site says. */
+  size: number | null;
+  /** Its page on the site. */
+  url: string;
+}
+
+export interface ModelSearchPage {
+  results: ModelResult[];
+  /** Pass back as `cursor` for the next page; null at the end. */
+  next: string | null;
+}
+
+/** A model site the server can search: whether it has the key it needs. */
+export interface ModelSourceStatus {
+  source: ModelSource;
+  name: string;
+  /** Searching works (a key is saved or in the environment, or the site needs none to search). */
+  searchable: boolean;
+  /** Adding a result works: some sites want a key to download. */
+  downloadable: boolean;
+  /** A key is saved in the app (Settings can forget it); one from the environment can't be changed here. */
+  keySaved: boolean;
+  keyFromEnvironment: boolean;
+}
+
+export interface ModelSearchStatus {
+  sources: ModelSourceStatus[];
+  /** Whether the starter pack is offered (it's downloaded from the internet; not in the e2e tests). */
+  starter: boolean;
+}
+
+/** A site's API key, as the user pasted it; null forgets it. */
+export interface SetModelKeyRequest {
+  key: string | null;
+}
+
+/** A model search's result, or a starter model (`STARTER_MODELS`), downloaded into a Library folder. */
+export interface AddModelToLibraryRequest {
+  source: ModelSource;
+  id: string;
+  folderId: string | null;
+}
+
 export interface ImportWebMediaRequest {
   projectId: string;
   url: string;
@@ -1171,6 +1253,7 @@ export interface ToolCallProgressRequest {
 //   DELETE /api/library/folders/:id     -> 204 (with everything in it)
 //   POST   /api/library/items?folderId=<id>&name=<file name>  body: raw file bytes -> LibraryEntry (201)
 //   POST   /api/library/items/web  body: AddWebToLibraryRequest -> LibraryEntry (201): a link's video downloaded into a folder
+//   POST   /api/library/items/model  body: AddModelToLibraryRequest -> LibraryEntry (201): a 3D model downloaded into a folder
 //   POST   /api/library/items/media  body: SaveMediaToLibraryRequest -> LibraryEntry (201)
 //   POST   /api/library/items/clips  body: SaveClipsToLibraryRequest -> LibraryEntry (201)
 //   PATCH  /api/library/items/:id  body: UpdateLibraryItemRequest -> LibraryItem
@@ -1187,6 +1270,10 @@ export interface ToolCallProgressRequest {
 //   GET    /api/now-playing/vibe/file   -> its ONNX file (404 until it's downloaded)
 //   GET    /api/now-playing/ratings     -> { ratings: LookRating[] }: the visualizer's looks as rated, oldest first
 //   POST   /api/now-playing/ratings  body: LookRatingInput -> LookRating (201; 400 not a rating)
+//   GET    /api/models                  -> ModelSearchStatus: the 3D model sites the visualizer searches, and their keys
+//   PUT    /api/models/keys/:source  body: SetModelKeyRequest -> ModelSearchStatus (the key itself is never sent back)
+//   GET    /api/models/search?q=<words>&source=poly-pizza|sketchfab&animated=1&cursor=<next> -> ModelSearchPage
+//                                        (400 no words, 401 the site turned the key down, 412 no key, 502 the site failed)
 //   POST   /api/exports   body: ExportRequest -> ExportJob (202)
 //   GET    /api/exports/formats         -> ExportFormat[] (what this computer's ffmpeg can make)
 //   GET    /api/exports/:id             -> ExportJob

@@ -84,6 +84,11 @@ export const ONLINE_ASSETS = process.env.EDITOR_ONLINE_ASSETS || null;
 export const NOW_PLAYING = process.env.EDITOR_NOW_PLAYING || null;
 /** "stand-in": Now Playing's vibe model (CLAP) is stood in for, never downloaded; the vibe's made up (the e2e tests). */
 export const VIBE_MODEL = process.env.EDITOR_VIBE_MODEL || null;
+/** The visualizer's 3D model search's keys (Poly Pizza's API key, Sketchfab's API token); otherwise entered in the app. */
+export const POLY_PIZZA_API_KEY = process.env.POLY_PIZZA_API_KEY || null;
+export const SKETCHFAB_API_TOKEN = process.env.SKETCHFAB_API_TOKEN || null;
+/** "stand-in": the visualizer's model search finds made-up models (tiny boxes), never the internet's (the e2e tests). */
+export const MODEL_SEARCH = process.env.EDITOR_MODEL_SEARCH || null;
 /** gallery-dl, which reads the pictures of a link pasted into the photo suite's Online panel (optional). */
 export const GALLERY_DL = process.env.GALLERY_DL_PATH || "gallery-dl";
 /** "fake" swaps the local transcription engine for one that makes words up (the e2e tests). */
