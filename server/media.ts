@@ -5,9 +5,10 @@ import path from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createId } from "../shared/ids.ts";
-import { normalizeImageInfo } from "../shared/media.ts";
+import { STILL_DURATION, normalizeImageInfo } from "../shared/media.ts";
+import { isGlb, readGlb } from "../shared/model-file.ts";
 import { SIGNALS_VERSION, signalsFileName } from "../shared/signals/format.ts";
-import type { ImageInfo, MediaAsset, MediaSignals, ReversedMedia } from "../shared/types.ts";
+import type { ImageInfo, MediaAsset, MediaSignals, ModelCredit, ModelInfo, ReversedMedia } from "../shared/types.ts";
 import { errorMessage } from "../shared/errors.ts";
 import { makeFilmstrip, makePoster, makeReversed, makeStillPoster, makeWaveform } from "./derivatives.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
@@ -19,6 +20,23 @@ import { type DataPaths, HttpError, isValidId, readJson, writeJson } from "./sto
 import { log } from "./log.ts";
 
 const logger = log("media");
+
+/** The biggest 3D model kept: the visualizer draws it among everything else, every frame. */
+export const MAX_MODEL_BYTES = 40 * 1024 * 1024;
+/** Compressions the visualizer's model loader has no decoder for (meshopt it has). */
+const UNDRAWABLE_EXTENSIONS = new Set(["KHR_draco_mesh_compression", "KHR_texture_basisu"]);
+
+/** Whether a file is a 3D model (a binary glTF), by its first bytes. */
+async function isModelFile(file: string): Promise<boolean> {
+  const handle = await fs.open(file, "r");
+  try {
+    const head = new Uint8Array(4);
+    await handle.read(head, 0, 4, 0);
+    return isGlb(head);
+  } finally {
+    await handle.close();
+  }
+}
 
 /** Background (filmstrip + waveform) jobs running at once. */
 const JOB_CONCURRENCY = 2;
@@ -259,6 +277,13 @@ export class MediaLibrary {
     origin?: string,
   ): Promise<MediaAsset> {
     if (!projectExists()) throw new HttpError(404, "Project not found");
+    if (await isModelFile(file)) return this.addModel(file, rawName, projectId, projectExists, { origin });
+    if (/\.gltf$/i.test(rawName)) {
+      throw new HttpError(
+        415,
+        "A .gltf model comes in several files: save it as one .glb (in Blender: File › Export › glTF 2.0, format glTF Binary) and add that.",
+      );
+    }
     if (!(await ffmpegVersion())) {
       throw new HttpError(503, "ffmpeg isn't installed, so media can't be imported.");
     }
@@ -274,6 +299,78 @@ export class MediaLibrary {
       image = info;
     }
     return await this.adds(projectId, () => this.commit(file, { name, projectId, size, probe, image, origin }, projectExists));
+  }
+
+  /**
+   * Add a 3D model (`.glb`) to the Library's media: the visualizer's (docs/now-playing.md), so never a project's. It's
+   * read for its animations, kept as it is and ready at once (there's nothing to make of it); `poster`, a picture of it
+   * (a model site's), is moved in beside it. On failure the files are left for the caller.
+   */
+  async addModel(
+    file: string,
+    rawName: string,
+    projectId: string | null,
+    projectExists: () => boolean,
+    { origin, poster, credit }: { origin?: string; poster?: string | null; credit?: ModelCredit } = {},
+  ): Promise<MediaAsset> {
+    if (projectId !== null) throw new HttpError(415, "3D models are for the visualizer: add them in Now Playing's media.");
+    if (!projectExists()) throw new HttpError(404, "Project not found");
+    const { size } = await fs.stat(file);
+    if (size === 0) throw new HttpError(400, "The file is empty.");
+    if (size > MAX_MODEL_BYTES) {
+      throw new HttpError(413, `This model is ${Math.round(size / 2 ** 20)} MB: the visualizer takes models up to ${MAX_MODEL_BYTES / 2 ** 20} MB.`);
+    }
+    let model: ModelInfo;
+    try {
+      const { animations, triangles, skinned, extensions } = readGlb(await fs.readFile(file));
+      const unsupported = extensions.filter((e) => UNDRAWABLE_EXTENSIONS.has(e));
+      if (unsupported.length) throw new Error(`This model is compressed in a way the visualizer can't draw (${unsupported.join(", ")}): export it again without Draco or Basis compression.`);
+      model = { animations, triangles, skinned, ...(credit ? { credit } : {}) };
+    } catch (err) {
+      throw new HttpError(415, errorMessage(err));
+    }
+    const name = displayName(rawName);
+    const id = createId("media");
+    const dir = this.dirFor(projectId, id);
+    const url = (part: string) => `${this.root.url}/${id}/${part}`;
+    try {
+      await fs.mkdir(dir, { recursive: true });
+      await fs.rename(file, path.join(dir, "source.glb"));
+      let posterUrl: string | null = null;
+      if (poster) {
+        const posterName = `poster${path.extname(poster).toLowerCase() || ".jpg"}`;
+        await fs.rename(poster, path.join(dir, posterName));
+        posterUrl = url(posterName);
+      }
+      const asset: MediaAsset = {
+        id,
+        projectId,
+        name,
+        kind: "model",
+        duration: STILL_DURATION,
+        width: null,
+        height: null,
+        fps: null,
+        hasVideo: false,
+        hasAudio: false,
+        size,
+        createdAt: Date.now(),
+        status: "ready",
+        src: url("source.glb"),
+        poster: posterUrl,
+        filmstrip: null,
+        waveform: null,
+        model,
+        ...(origin ? { origin } : {}),
+      };
+      await writeJson(path.join(dir, "meta.json"), asset);
+      if (!projectExists()) throw new HttpError(404, "Project not found");
+      this.assets.set(id, asset);
+      return asset;
+    } catch (err) {
+      await fs.rm(dir, { recursive: true, force: true });
+      throw err;
+    }
   }
 
   /** The image prober's reading of `file`, or null when there's no prober or it failed (ffprobe's reading stands). */

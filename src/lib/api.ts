@@ -2,6 +2,7 @@ import type { AssistantProvider, ChatSnapshot } from "@shared/assistant";
 import type { SuiteDocument, SuiteId } from "@shared/suites";
 import type { ToolResult } from "@shared/tool-spec";
 import type {
+  AddModelToLibraryRequest,
   AddWebToLibraryRequest,
   ApiError,
   AssistantStatus,
@@ -15,6 +16,9 @@ import type {
   HealthResponse,
   ImportFileRequest,
   ImportWebMediaRequest,
+  ModelSearchPage,
+  ModelSearchStatus,
+  ModelSource,
   Library,
   LibraryEntry,
   LibraryFolder,
@@ -204,6 +208,21 @@ export const api = {
     request<WebDownloadProgress>(`/api/web/progress?url=${encodeURIComponent(url)}&kind=${kind}`),
   importWebMedia: (body: ImportWebMediaRequest) =>
     request<MediaAsset>("/api/web/import", { method: "POST", body: JSON.stringify(body) }),
+
+  /** The 3D model sites (Poly Pizza, Sketchfab): which can be searched and downloaded from, with a key or not. */
+  getModelSearch: () => request<ModelSearchStatus>("/api/models"),
+  /** A site's key pasted in (null: forgotten), kept by the server. */
+  setModelKey: (source: ModelSource, key: string | null) =>
+    request<ModelSearchStatus>(`/api/models/keys/${source}`, { method: "PUT", body: JSON.stringify({ key }) }),
+  /** A page of a site's models for `q` (`animated`: only those that move), and the next page's cursor. */
+  searchModels: (q: string, source: ModelSource, animated: boolean, cursor: string | null, signal?: AbortSignal) =>
+    request<ModelSearchPage>(
+      `/api/models/search?q=${encodeURIComponent(q)}&source=${source}${animated ? "&animated=1" : ""}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+      { signal },
+    ),
+  /** A model from a site downloaded into a Library folder (the visualizer's), once: asked again, the same item. */
+  addModelToLibrary: (body: AddModelToLibraryRequest) =>
+    request<LibraryEntry>("/api/library/items/model", { method: "POST", body: JSON.stringify(body) }),
 
   getLibrary: () => request<Library>("/api/library"),
   createLibraryFolder: (body: CreateLibraryFolderRequest) =>

@@ -7,7 +7,7 @@ import { defaultEffects } from "./effects.ts";
 import { roundTime } from "./math.ts";
 import { normalizeProject } from "./normalize.ts";
 import { addTrack, clipDuration, clipEnd, createDefaultProject, createId, getTrack, isFree } from "./timeline.ts";
-import type { Clip, ClipTemplate, LibraryFolder, LibraryItem, MediaAsset, Project, Subclip, TrackKind } from "./types.ts";
+import type { Clip, ClipTemplate, Library, LibraryFolder, LibraryItem, MediaAsset, Project, Subclip, TrackKind } from "./types.ts";
 
 /** The Library media an item uses: its file, or every file its saved clips show. */
 export function itemMediaIds(item: LibraryItem): string[] {
@@ -222,7 +222,23 @@ export type LibraryItemKind = "video" | "audio" | "image" | "clips";
 
 export function libraryItemKind(item: LibraryItem, media: ReadonlyMap<string, MediaAsset>): LibraryItemKind {
   if (item.kind === "clips") return "clips";
-  return media.get(item.mediaId)?.kind ?? "video";
+  const kind = media.get(item.mediaId)?.kind ?? "video";
+  // Never in the video editor's Library (`editorLibrary` leaves models out), but a picture if one were.
+  return kind === "model" ? "image" : kind;
+}
+
+/**
+ * The Library as the video editor shows it: without 3D models (the visualizer's alone, docs/now-playing.md), which
+ * no timeline can play.
+ */
+export function editorLibrary(library: Library): Library {
+  const models = new Set(library.media.filter((m) => m.kind === "model").map((m) => m.id));
+  if (!models.size) return library;
+  return {
+    ...library,
+    items: library.items.filter((i) => i.kind !== "media" || !models.has(i.mediaId)),
+    media: library.media.filter((m) => !models.has(m.id)),
+  };
 }
 
 /** How long an item lasts on the timeline (0 when its media is missing). */

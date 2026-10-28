@@ -79,6 +79,8 @@ const PLATFORM = [
   "server/ffmpeg.ts",
   "server/media-analysis.ts",
   "server/routes/media.ts",
+  // A 3D model's file (.glb) read without three.js: what it holds and what it needs, for the store's probe.
+  "shared/model-file.ts",
   // Online media (YouTube's search and links yt-dlp reads): the video editor's Online panel, the music Browser's Online tab.
   "server/web-media.ts",
   "server/routes/web.ts",

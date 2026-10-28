@@ -453,7 +453,7 @@ test("Now Playing's media: clips and pictures of the user's, melting into MilkDr
     ctx.fill();
     return canvas.toDataURL("image/png").split(",")[1];
   });
-  await panel.getByLabel("Add clips or pictures").setInputFiles({ name: "glow.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
+  await panel.getByLabel("Add files: clips, pictures or 3D models").setInputFiles({ name: "glow.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
   const item = panel.locator("[data-media]");
   await expect(item).toHaveCount(1);
   const id = (await item.getAttribute("data-media"))!;
@@ -520,18 +520,40 @@ test("Now Playing's media: clips and pictures of the user's, melting into MilkDr
 
   // Found online (the video editor's Online search, a stand-in yt-dlp): typed into the search, not the visualizer's
   // keys (its A would have changed how looks change); a result's picture downloaded into the folder and shown at once.
-  await panel.getByRole("tab", { name: "Online" }).click();
+  await panel.getByRole("button", { name: "Add", exact: true }).click();
+  await panel.getByRole("menuitem", { name: /Online video/ }).click();
   const search = panel.getByLabel("Search YouTube or paste a link");
   await search.pressSequentially("amen");
   await expect(view.getByLabel("Change looks")).toHaveValue("off");
   const result = panel.locator('li[data-url*="amenbreak01"]');
   await expect(result).toBeVisible();
   await result.getByRole("button", { name: /^Into the visualizer/ }).click();
+  // (Back on the set's list once it's in.)
   const online = panel.locator("[data-media]");
   await expect(online).toHaveCount(1, { timeout: 30_000 });
+  await expect(online).toHaveAttribute("data-kind", "video");
   await expect(milkdrop).toHaveAttribute("data-media", (await online.getAttribute("data-media"))!);
   const after = await (await page.request.get("/api/library")).json();
   expect(after.media.some((m: { origin?: string; kind: string }) => m.origin === "web:video:amenbreak01" && m.kind === "video")).toBe(true);
+
+  // A 3D model searched for (a stand-in site: made-up boxes, those that move marked) comes into the set and the look.
+  await panel.getByRole("button", { name: "Add", exact: true }).click();
+  await panel.getByRole("menuitem", { name: /3D models/ }).click();
+  await panel.getByLabel("Search for 3D models").pressSequentially("robot");
+  await expect(view.getByLabel("Change looks")).toHaveValue("off");
+  const model = panel.locator('[data-model="model:poly-pizza:robot-0"]');
+  await expect(model).toContainText("Moves");
+  await model.getByRole("button", { name: "Add robot 1" }).click();
+  await expect(model.getByRole("button", { name: "robot 1: in the visualizer" })).toBeVisible({ timeout: 30_000 });
+  await panel.getByRole("button", { name: "Back to your media" }).click();
+  const box = panel.locator('[data-media][data-kind="model"]');
+  await expect(box).toHaveCount(1);
+  await expect(box).toContainText("3D · animated");
+  await expect(box).toContainText("Stand-in · CC0 1.0");
+  await expect(milkdrop).toHaveAttribute("data-media", (await box.getAttribute("data-media"))!);
+  await expect.poll(async () => Number(await milkdrop.getAttribute("data-fed")), { timeout: 10_000 }).toBeGreaterThan(30);
+  const withModel = await (await page.request.get("/api/library")).json();
+  expect(withModel.media.some((m: { origin?: string; kind: string }) => m.origin === "model:poly-pizza:robot-0" && m.kind === "model")).toBe(true);
   await page.keyboard.press("Escape");
   await expect(view).toHaveCount(0);
 });
@@ -572,7 +594,8 @@ test("Now Playing's screen: a window or screen shared into MilkDrop's looks, the
   await page.mouse.move(410, 310);
   await view.getByRole("button", { name: "Your clips, pictures and screen, in the feedback" }).click();
   const panel = view.locator("[data-media-panel]");
-  await panel.getByRole("tab", { name: "Screen" }).click();
+  await panel.getByRole("button", { name: "Add", exact: true }).click();
+  await panel.getByRole("menuitem", { name: /Screen or window/ }).click();
   await panel.getByRole("button", { name: "Choose a screen or window…" }).click();
   await expect(panel.locator("[data-screen-shared]")).toContainText("The screen");
   // (Once MilkDrop's loaded: the look before shows till then.)
@@ -583,7 +606,8 @@ test("Now Playing's screen: a window or screen shared into MilkDrop's looks, the
   await expect.poll(async () => Number(await milkdrop.getAttribute("data-screen-fed")), { timeout: 10_000 }).toBeGreaterThan(30);
 
   // A picture added comes in over the screen at once (one asked for doesn't wait for its turn), the screen staying.
-  await panel.getByRole("tab", { name: /^Yours/ }).click();
+  await panel.getByRole("button", { name: "Back to your media" }).click();
+  await expect(panel.locator("[data-screen-row]")).toContainText("The screen");
   const items = panel.locator("[data-media]");
   const before = await items.evaluateAll((els) => els.map((el) => el.getAttribute("data-media")));
   const png = await page.evaluate(() => {
@@ -595,14 +619,14 @@ test("Now Playing's screen: a window or screen shared into MilkDrop's looks, the
     ctx.fillRect(0, 0, 320, 180);
     return canvas.toDataURL("image/png").split(",")[1];
   });
-  await panel.getByLabel("Add clips or pictures").setInputFiles({ name: "over.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
+  await panel.getByLabel("Add files: clips, pictures or 3D models").setInputFiles({ name: "over.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
   await expect(items).toHaveCount(before.length + 1);
   const added = (await items.evaluateAll((els) => els.map((el) => el.getAttribute("data-media")))).find((id) => !before.includes(id))!;
   await expect(milkdrop).toHaveAttribute("data-media", added);
   const fed = Number((await milkdrop.getAttribute("data-fed")) ?? 0);
   await expect.poll(async () => Number(await milkdrop.getAttribute("data-fed")), { timeout: 10_000 }).toBeGreaterThan(fed);
   await expect(milkdrop).toHaveAttribute("data-screen", "on");
-  await panel.getByRole("tab", { name: /^Screen/ }).click();
+  await panel.locator("[data-screen-row]").click();
 
   // Looks picked while it's shared are MilkDrop's.
   for (let i = 0; i < 3; i++) {

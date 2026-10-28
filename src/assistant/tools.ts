@@ -22,7 +22,7 @@ import { getSequence, writeSequence } from "@shared/sequences";
 import { getSubclip } from "@shared/subclips";
 import { placeTemplate } from "@shared/library";
 import { clipEnd, getClip, projectDuration, timelineTime, outputSize } from "@shared/timeline";
-import type { Clip, ExportJob, ExportResolution, Library, MediaAsset, Project, RenderJob, TranscriptionEngineId, TranscriptionJob } from "@shared/types";
+import type { Clip, ExportJob, ExportResolution, Library, MediaAsset, ModelResult, Project, RenderJob, TranscriptionEngineId, TranscriptionJob } from "@shared/types";
 import { layoutTexts } from "@/components/export/layout-texts";
 import { clipsOnCanvas } from "@/components/preview/placement";
 import { fontsSettled } from "@/stores/fonts";
@@ -73,6 +73,7 @@ import { EFFECTS_MODES } from "@/components/now-playing-view/effects-engine";
 import { AUTO_SWITCHES, PACE, paceLabel, paceOf, useVisualizerPrefs } from "@/components/now-playing-view/prefs";
 import { useLookRatings } from "@/components/now-playing-view/look-ratings";
 import { useVisualizerMedia } from "@/components/now-playing-view/media-library";
+import { MODEL_SITES, MODEL_SOURCES, STARTER_SET, modelOrigin } from "@shared/model-search";
 import { useVisualizerScreen } from "@/components/now-playing-view/screen";
 import { desktopScreens } from "@/lib/desktop";
 import { useNowPlaying } from "@/stores/now-playing";
@@ -863,7 +864,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
     if (sets.length > 1) lines.push(`The user's sets of clips (mediaSet): ${sets.map((s) => `${s.name} (${s.media.length}${s.id === setId ? ", in use" : ""})`).join(", ")}.`);
     lines.push(
       media.length
-        ? `The user's clips and pictures${inUse ? ` in ${inUse.name}` : ""} (${media.length}: ${media.map((m) => `${m.asset.name} (${m.asset.kind})`).join(", ")}) melt into MilkDrop's feedback: ${prefs.media ? (fed ? `${fed} now` : "on, none in the look shown") : "turned off"}.`
+        ? `The user's clips, pictures and 3D models${inUse ? ` in ${inUse.name}` : ""} (${media.length}: ${media.map((m) => `${m.asset.name} (${m.asset.kind === "model" ? `3D model${m.asset.model?.animations.length ? ", animated" : ""}` : m.asset.kind})`).join(", ")}) melt into MilkDrop's feedback: ${prefs.media ? (fed ? `${fed} now` : "on, none in the look shown") : "turned off"}.`
         : inUse
           ? `The user's set of clips in use (${inUse.name}) is empty: they add clips to it from the visualizer's media panel.`
           : "The user has no clips or pictures in the visualizer (they add them from its media panel, or drop them on it).",
@@ -905,6 +906,9 @@ const TOOLS: Record<VideoToolName, Handler> = {
     const mediaAsk = optString(input, "media");
     if (mediaAsk !== undefined && mediaAsk !== "on" && mediaAsk !== "off" && mediaAsk !== "next") throw new ToolError("`media` is on, off or next.");
     const mediaSetName = optString(input, "mediaSet");
+    const modelWords = optString(input, "model")?.trim();
+    const modelAnimated = optBoolean(input, "modelAnimated") ?? false;
+    if (modelWords === "") throw new ToolError("`model` is the words to find a model by (a robot, a donut...), or \"starter pack\".");
     const screenName = optString(input, "screen");
     if (ratingMode !== undefined && ratingMode !== "start" && ratingMode !== "stop") throw new ToolError("`rating` is start or stop.");
     const rawFrame = input.frame;
@@ -981,6 +985,33 @@ const TOOLS: Record<VideoToolName, Handler> = {
         if (!useNowPlaying.getState().visualizer) np.openVisualizer();
       }
       done.push(`feeding from the ${wanted.name} clips (${wanted.media.length})`);
+    }
+    if (modelWords !== undefined) {
+      const vis = useVisualizerMedia.getState();
+      if (!vis.loaded) await vis.load();
+      if (/^starter( pack)?$/i.test(modelWords)) {
+        await useVisualizerMedia.getState().addStarter();
+        const pack = useVisualizerMedia.getState().sets.find((s) => sameName(s.name, STARTER_SET));
+        if (!pack) throw new ToolError("The starter pack couldn't be downloaded (the user may be offline).");
+        done.push(`the starter pack is in its own set (${pack.media.length} models)`);
+      } else {
+        let found: ModelResult | undefined;
+        for (const source of MODEL_SOURCES) {
+          try {
+            found = (await api.searchModels(modelWords, source, modelAnimated, null)).results[0];
+          } catch {
+            // That site can't be searched (no key, or it's down): the next.
+          }
+          if (found) break;
+        }
+        if (!found) throw new ToolError(`No free 3D model matched "${modelWords}"${modelAnimated ? " that moves" : ""}: try other, plainer words (one thing: "cat", "robot").`);
+        const origin = modelOrigin(found.source, found.id);
+        await useVisualizerMedia.getState().addModel(found);
+        if (!useVisualizerMedia.getState().sets.some((s) => s.media.some((m) => m.asset.origin === origin))) throw new ToolError(`${found.title} couldn't be downloaded: try another (\`model\` with other words).`);
+        useVisualizerPrefs.getState().setMedia(true);
+        if (!useNowPlaying.getState().visualizer) np.openVisualizer();
+        done.push(`added the 3D model ${found.title} by ${found.author} (${found.licence}, ${MODEL_SITES[found.source].name}${found.animated ? ", animated" : ""}), shown next`);
+      }
     }
     if (mediaAsk) {
       const vis = useVisualizerMedia.getState();

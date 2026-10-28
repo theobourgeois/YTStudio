@@ -526,6 +526,7 @@ export function describeToolCall(rawName: string, input: unknown): string {
       if (f("rate") === "bin") return "Bin the visualizer's look";
       if (f("rate") === "clear") return "Take back a look's rating";
       if (typeof f("mediaSet") === "string") return `Use your ${String(f("mediaSet"))} clips`;
+      if (typeof f("model") === "string") return /^starter( pack)?$/i.test(String(f("model")).trim()) ? "Add the starter pack's 3D models" : `Add a 3D model: ${String(f("model"))}`;
       if (f("media") === "next") return "Bring in another clip";
       if (f("media") === "on") return "Melt your clips into the visualizer";
       if (f("media") === "off") return "Take your clips out of the visualizer";
