@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Auto Mix trainer</title>
+<style>
+  :root {
+    --bg: #1f242b; --s1: #282e37; --s2: #313843; --s3: #3b4350; --sunken: #181c22; --line: #12161b;
+    --text: #dfe5ec; --dim: #8c97a5; --brand: #f59a3c; --b2: #5aa7e6; --good: #6cc68a; --bad: #e0675c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.4 "DM Sans", "Segoe UI", system-ui, sans-serif; user-select: none; }
+  button { font: inherit; color: var(--text); background: linear-gradient(var(--s3), var(--s2)); border: 1px solid var(--line);
+    border-radius: 4px; padding: 6px 12px; cursor: pointer; box-shadow: inset 0 1px 0 #ffffff14; }
+  button:hover { background: linear-gradient(#45505f, var(--s3)); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.on { background: linear-gradient(#f7ad5e, var(--brand)); color: #1b1408; }
+  button.primary { background: linear-gradient(#f7ad5e, var(--brand)); color: #1b1408; font-weight: 600; }
+  button.on kbd, button.primary kbd { color: #3d2a12; border-color: #00000030; }
+  button.small { padding: 2px 7px; font-size: 11px; }
+  kbd { font: 10px ui-monospace, monospace; color: var(--dim); border: 1px solid var(--s3); border-radius: 3px; padding: 0 3px; margin-left: 5px; }
+  select { font: inherit; color: var(--text); background: var(--sunken); border: 1px solid var(--line); border-radius: 3px; padding: 2px 4px; }
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 16px; background: var(--s1); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .stats { color: var(--dim); flex: 1; }
+  main { padding: 16px; max-width: 1300px; margin: 0 auto; }
+  .bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .bar .song { font-size: 17px; font-weight: 600; margin-right: 10px; }
+  .bar .time { font: 12px ui-monospace, monospace; color: var(--dim); min-width: 90px; }
+  .spacer { flex: 1; }
+  #timeline { width: 100%; height: 70px; display: block; background: var(--sunken); border: 1px solid var(--line); border-radius: 4px; cursor: crosshair; }
+  .strips { display: flex; gap: 8px; margin-top: 14px; padding: 12px; background: var(--s1); border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; }
+  .strip { width: 96px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px 4px;
+    background: var(--s2); border: 1px solid var(--line); border-radius: 5px; }
+  .strip .name { font-weight: 600; font-size: 12px; text-align: center; height: 32px; display: flex; align-items: center; }
+  .strip .members { font-size: 10px; color: var(--dim); height: 14px; }
+  .fader { position: relative; width: 44px; height: 280px; cursor: ns-resize; touch-action: none; }
+  .fader .slot { position: absolute; left: 50%; top: 10px; bottom: 10px; width: 6px; margin-left: -3px; background: var(--sunken);
+    border: 1px solid var(--line); border-radius: 3px; }
+  .fader .tick { position: absolute; left: 6px; right: 6px; height: 1px; background: #ffffff10; }
+  .fader .tick.zero { background: #ffffff26; }
+  .fader .meter { position: absolute; left: 50%; bottom: 10px; width: 4px; margin-left: -2px; background: var(--good); opacity: .55; border-radius: 2px; }
+  .fader .thumb { position: absolute; left: 4px; right: 4px; height: 22px; margin-top: -11px; border-radius: 3px; border: 1px solid var(--line);
+    background: linear-gradient(#6b7685, #48515e 45%, #3a424d 55%, #56606e); box-shadow: 0 2px 4px #0006; }
+  .fader .thumb::after { content: ""; position: absolute; left: 3px; right: 3px; top: 10px; height: 1px; background: var(--brand); }
+  .fader.locked { cursor: default; }
+  .fader.locked .thumb { opacity: .35; }
+  .ms { display: flex; gap: 4px; }
+  .ms button { padding: 1px 8px; font-size: 11px; font-weight: 600; }
+  .ms button.m.on { background: linear-gradient(#ef8a80, var(--bad)); }
+  .ms button.s.on { background: linear-gradient(#8fd6a5, var(--good)); }
+  .ab { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+  .ab button { border: 0; border-radius: 0; }
+  .panel { margin-top: 14px; background: var(--s1); border: 1px solid var(--line); border-radius: 6px; }
+  .panel > summary { padding: 9px 12px; cursor: pointer; font-weight: 600; }
+  .panel .body { padding: 4px 12px 12px; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 500; font-size: 11px; }
+  td.changed { color: var(--brand); }
+  .overlay { position: fixed; inset: 0; background: #0009; display: none; align-items: center; justify-content: center; z-index: 5; }
+  .overlay.show { display: flex; }
+  .dialog { background: var(--s1); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; width: min(720px, 92vw);
+    max-height: 88vh; overflow: auto; box-shadow: 0 14px 40px #0008; }
+  .dialog h2 { margin: 0 0 10px; font-size: 16px; }
+  .dialog pre { font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap; background: var(--sunken); padding: 10px; border-radius: 4px; user-select: text; }
+  .dialog .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  .cmp { display: grid; grid-template-columns: 130px 1fr 1fr; gap: 6px 14px; align-items: center; margin-top: 8px; }
+  .cmp .h { color: var(--dim); font-size: 11px; }
+  .dev { position: relative; height: 14px; background: var(--sunken); border-radius: 2px; }
+  .dev::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: #ffffff30; }
+  .dev span { position: absolute; top: 2px; bottom: 2px; background: var(--b2); border-radius: 2px; }
+  .dev em { position: absolute; right: 2px; top: 0; padding: 0 3px; background: var(--sunken); border-radius: 2px; line-height: 14px; font: 10px ui-monospace, monospace; color: var(--dim); font-style: normal; }
+  .msg { color: var(--dim); padding: 40px 0; text-align: center; font-size: 14px; }
+  .err { color: var(--bad); }
+  .note { color: var(--dim); font-size: 12px; }
+  textarea { width: 100%; font: inherit; color: var(--text); background: var(--sunken); border: 1px solid var(--line); border-radius: 4px; padding: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Auto Mix trainer</h1>
+  <div class="stats" id="stats"></div>
+  <button id="learnBtn" title="Fit the model on your mixes and say whether it beats the rules">Learn</button>
+  <button id="reportBtn" title="The last learning report">Report</button>
+</header>
+<main>
+  <div id="loading" class="msg">Loading…</div>
+  <div id="ui" style="display:none">
+    <div class="bar">
+      <span class="song" id="songName"></span>
+      <span class="note" id="hint"></span>
+      <span class="spacer"></span>
+      <span class="time" id="time">0:00 / 0:00</span>
+      <button id="playBtn" title="Play or pause (Space)">Play<kbd>Space</kbd></button>
+      <button id="loopBtn" title="Loop the selected part (L). Drag on the timeline to choose it">Loop<kbd>L</kbd></button>
+      <span class="ab" title="Hear your balance or Auto Mix's, at the same loudness (B)">
+        <button id="aBtn" class="on">Yours</button><button id="bBtn">Auto Mix<kbd>B</kbd></button>
+      </span>
+      <button id="glueBtn" title="A gentle bus compressor on the whole mix, as a master chain would">Glue</button>
+      <button id="holdBtn" class="on" title="Keep the mix at the same loudness while you move faders, so louder never sounds better">Hold loudness</button>
+    </div>
+    <canvas id="timeline"></canvas>
+    <div class="strips" id="strips"></div>
+    <div class="bar" style="margin-top:14px">
+      <span class="note">Balance it the way you'd want it released. Double-click a fader to put it back where it started. Shift-drag for fine moves.</span>
+      <span class="spacer"></span>
+      <button id="skipBtn">Skip…</button>
+      <button id="saveBtn" class="primary" title="Save this mix (Enter)">Save this mix<kbd>Enter</kbd></button>
+    </div>
+    <details class="panel" id="tracksPanel">
+      <summary>Tracks and roles <span class="note" id="tracksNote"></span></summary>
+      <div class="body">
+        <p class="note">If a track is in the wrong group (a vocal counted as a synth, the wrong lead), fix it here: the groups are rebuilt and the fix is kept for this song.</p>
+        <table><thead><tr><th>Insert</th><th>Track</th><th>Role</th><th>Lead vocal</th><th>Group</th></tr></thead><tbody id="tracks"></tbody></table>
+        <div style="margin-top:8px"><button class="small" id="resetRoles">Undo my role changes for this song</button></div>
+      </div>
+    </details>
+  </div>
+</main>
+
+<div class="overlay" id="overlay"><div class="dialog" id="dialog"></div></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const undb = (d) => Math.pow(10, d / 20);
+const MIN_DB = -30, MAX_DB = 15;
+
+let ctx = null, master = null, glue = null, safety = null;
+let S = null;            // the session: { session, song, start }
+let groups = [];         // [{ id, name, lufs, env, url, sig, buffer, node, analyser, gain, start, mute, solo, leaves }]
+let auto = {};
+let playing = false, startCtx = 0, startPos = 0, pos = 0;
+let sources = [];
+let loop = { on: false, a: 0, b: 0 };
+let useAuto = false, holdLoudness = true, glueOn = false;
+let refLoudness = null, began = 0, busy = false;
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function ensureAudio() {
+  if (ctx) return;
+  ctx = new AudioContext({ latencyHint: "playback" });
+  master = ctx.createGain();
+  glue = ctx.createDynamicsCompressor();
+  glue.threshold.value = -18; glue.ratio.value = 2; glue.knee.value = 8; glue.attack.value = 0.03; glue.release.value = 0.25;
+  safety = ctx.createDynamicsCompressor(); // keeps a loud balance from clipping the output
+  safety.threshold.value = -1; safety.ratio.value = 20; safety.knee.value = 0; safety.attack.value = 0.002; safety.release.value = 0.1;
+  master.connect(safety); safety.connect(ctx.destination);
+}
+
+function routeGlue() {
+  master.disconnect(); glue.disconnect();
+  if (glueOn) { master.connect(glue); glue.connect(safety); } else master.connect(safety);
+}
+
+// Loudness of a balance, from each group's K-weighted loudness every 400 ms (gated as BS.1770 gates).
+function loudness(gains) {
+  const live = groups.filter((g) => g.env && g.env.length);
+  if (!live.length) return null;
+  const n = Math.min(...live.map((g) => g.env.length));
+  const blocks = [];
+  for (let i = 0; i < n; i++) {
+    let p = 0;
+    for (const g of live) p += Math.pow(10, (g.env[i] + (gains[g.id] || 0)) / 10);
+    blocks.push(p);
+  }
+  const abs = blocks.filter((p) => 10 * Math.log10(p) > -70);
+  if (!abs.length) return null;
+  const rel = 10 * Math.log10(abs.reduce((a, b) => a + b, 0) / abs.length) - 10;
+  const gated = abs.filter((p) => 10 * Math.log10(p) > rel);
+  return 10 * Math.log10(gated.reduce((a, b) => a + b, 0) / gated.length);
+}
+
+function currentGains() {
+  const out = {};
+  for (const g of groups) out[g.id] = useAuto ? (auto[g.id] ?? 0) : g.gain;
+  return out;
+}
+
+function applyGains(smooth = true) {
+  if (!ctx) return;
+  const gains = currentGains();
+  const soloed = groups.some((g) => g.solo);
+  const t = ctx.currentTime;
+  for (const g of groups) {
+    if (!g.node) continue;
+    const audible = soloed ? g.solo : !g.mute;
+    const v = audible ? undb(gains[g.id]) : 0;
+    smooth ? g.node.gain.setTargetAtTime(v, t, 0.02) : g.node.gain.setValueAtTime(v, t);
+  }
+  // Yours and Auto Mix always at the same loudness; with Hold loudness, every balance of yours too
+  let m = 0;
+  if (refLoudness != null && (holdLoudness || useAuto)) {
+    const now = loudness(gains);
+    const mine = holdLoudness ? refLoudness : loudness(Object.fromEntries(groups.map((g) => [g.id, g.gain])));
+    if (now != null && mine != null) m = mine - now;
+  }
+  master.gain.setTargetAtTime(undb(m), t, smooth ? 0.15 : 0.001);
+}
+
+// Playback -----------------------------------------------------------------------------------------------------
+
+function duration() { return S ? S.song.duration : 0; }
+
+function position() {
+  if (!playing) return pos;
+  let p = startPos + (ctx.currentTime - startCtx);
+  if (loop.on && loop.b > loop.a && p >= loop.b) p = loop.a + ((p - loop.a) % (loop.b - loop.a));
+  return Math.min(p, duration());
+}
+
+function stopSources() {
+  for (const s of sources) { try { s.stop(); } catch {} s.disconnect(); }
+  sources = [];
+}
+
+function play(from) {
+  ensureAudio();
+  if (ctx.state === "suspended") ctx.resume();
+  stopSources();
+  let at = from ?? pos;
+  if (loop.on && loop.b > loop.a && (at < loop.a || at >= loop.b)) at = loop.a;
+  if (at >= duration() - 0.05) at = 0;
+  const when = ctx.currentTime + 0.05;
+  for (const g of groups) {
+    if (!g.buffer) continue;
+    const s = ctx.createBufferSource();
+    s.buffer = g.buffer;
+    if (loop.on && loop.b > loop.a) { s.loop = true; s.loopStart = loop.a; s.loopEnd = loop.b; }
+    s.connect(g.node);
+    s.start(when, at);
+    sources.push(s);
+  }
+  const first = sources[0];
+  if (first) first.onended = () => { if (playing && sources[0] === first && !first.loop) pause(true); };
+  startCtx = when; startPos = at; pos = at; playing = true;
+  $("playBtn").firstChild.textContent = "Pause";
+}
+
+function pause(ended) {
+  pos = ended ? 0 : position();
+  playing = false;
+  stopSources();
+  $("playBtn").firstChild.textContent = "Play";
+}
+
+function seek(t) {
+  pos = Math.max(0, Math.min(duration(), t));
+  if (playing) play(pos);
+  draw();
+}
+
+// Loading a song -----------------------------------------------------------------------------------------------
+
+async function decode(url) {
+  const r = await fetch(url);
+  return ctx.decodeAudioData(await r.arrayBuffer());
+}
+
+async function loadGroups(view, keep) {
+  ensureAudio();
+  const old = Object.fromEntries(groups.map((g) => [g.id, g]));
+  const next = [];
+  let done = 0;
+  const jobs = view.groups.map(async (vg) => {
+    const prev = old[vg.id];
+    const g = { ...vg, mute: prev?.mute || false, solo: prev?.solo || false };
+    g.start = keep && prev ? prev.start : (S.start[vg.id] ?? view.auto[vg.id] ?? 0);
+    g.gain = keep && prev ? prev.gain : g.start;
+    if (prev && prev.sig === vg.sig && prev.buffer) g.buffer = prev.buffer;
+    else g.buffer = await decode(vg.url);
+    done++;
+    $("loading").textContent = `Loading ${view.id}: ${done} of ${view.groups.length} groups`;
+    g.node = ctx.createGain();
+    g.analyser = ctx.createAnalyser();
+    g.analyser.fftSize = 2048;
+    g.node.connect(g.analyser);
+    g.node.connect(master);
+    next.push(g);
+  });
+  await Promise.all(jobs);
+  for (const g of groups) { g.node?.disconnect(); }
+  groups = view.groups.map((vg) => next.find((g) => g.id === vg.id));
+  auto = view.auto;
+  refLoudness = loudness(Object.fromEntries(groups.map((g) => [g.id, 0])));
+}
+
+async function nextSong() {
+  if (busy) return;
+  busy = true;
+  try {
+    if (playing) pause();
+    $("ui").style.display = "none";
+    $("loading").style.display = "";
+    $("loading").textContent = "Picking a song…";
+    ensureAudio();
+    const r = await api("/api/next", {});
+    S = { session: r.session, song: r.song, start: r.start };
+    groups = [];
+    $("loading").textContent = `Loading ${r.song.id}…`;
+    await loadGroups(r.song, false);
+    useAuto = false;
+    setAB();
+    defaultLoop();
+    pos = loop.a;
+    showStats(r.stats);
+    renderSong();
+    $("loading").style.display = "none";
+    $("ui").style.display = "";
+    began = performance.now();
+    applyGains(false);
+    draw();
+  } catch (e) {
+    $("loading").innerHTML = `<span class="err">${esc(e.message)}</span><br><br><button onclick="nextSong()">Try again</button>`;
+  } finally {
+    busy = false;
+  }
+}
+
+// the loudest 16 s, where the most is playing: a chorus, usually
+function defaultLoop() {
+  const env = S.song.envelope, step = S.song.envelopeS;
+  const w = Math.max(1, Math.round(16 / step));
+  let best = 0, bestAt = 0;
+  for (let i = 0; i + w <= env.length; i++) {
+    let p = 0;
+    for (let j = i; j < i + w; j++) p += Math.pow(10, (env[j] ?? -120) / 10);
+    if (p > best) { best = p; bestAt = i; }
+  }
+  loop = { on: false, a: bestAt * step, b: Math.min(duration(), (bestAt + w) * step) };
+  $("loopBtn").classList.toggle("on", false);
+}
+
+// The page -----------------------------------------------------------------------------------------------------
+
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+
+function showStats(st) {
+  if (!st) return;
+  let t = `${st.ready} of ${st.total} songs ready · ${st.mixed} mixed by you (${st.mixes} mixes) · ${st.skipped} skipped`;
+  if (st.model) {
+    const cv = st.model.cv;
+    t += ` · model ${st.model.made.slice(0, 16)}: ${cv.chosen?.toFixed(2)} dB vs rules ${cv.rules?.toFixed(2)} dB`;
+  } else t += " · no model yet (rules only)";
+  $("stats").textContent = t;
+  $("reportBtn").disabled = !st.report;
+  lastReport = st.report;
+}
+let lastReport = null;
+
+function renderSong() {
+  $("songName").textContent = S.song.id;
+  $("hint").textContent = S.song.corrected ? "(with your role fixes)" : "";
+  const strips = $("strips");
+  strips.innerHTML = "";
+  for (const g of groups) strips.appendChild(strip(g));
+  renderTracks();
+}
+
+function strip(g) {
+  const el = document.createElement("div");
+  el.className = "strip";
+  const extra = g.returns.length ? ` + ${g.returns.length} return${g.returns.length > 1 ? "s" : ""}` : "";
+  el.innerHTML = `<div class="name">${esc(g.name)}</div>
+    <div class="members" title="${esc(g.leaves.length + " tracks" + extra)}">${g.leaves.length} track${g.leaves.length > 1 ? "s" : ""}${extra}</div>
+    <div class="fader"><div class="slot"></div><div class="meter"></div><div class="thumb"></div></div>
+    <div class="ms"><button class="m" title="Mute">M</button><button class="s" title="Solo">S</button></div>`;
+  const fader = el.querySelector(".fader"), thumb = el.querySelector(".thumb");
+  g.meterEl = el.querySelector(".meter");
+  g.faderEl = fader;
+  for (const d of [-24, -12, 0, 12]) {
+    const tk = document.createElement("div");
+    tk.className = "tick" + (d === 0 ? " zero" : "");
+    tk.style.top = `${10 + (1 - (d - MIN_DB) / (MAX_DB - MIN_DB)) * 260}px`;
+    fader.appendChild(tk);
+  }
+  const place = () => { thumb.style.top = `${10 + (1 - (g.gain - MIN_DB) / (MAX_DB - MIN_DB)) * 260}px`; };
+  g.place = place;
+  place();
+  fader.addEventListener("pointerdown", (e) => {
+    if (useAuto) return;
+    fader.setPointerCapture(e.pointerId);
+    let lastY = e.clientY;
+    const move = (ev) => {
+      const dy = ev.clientY - lastY; lastY = ev.clientY;
+      g.gain = Math.max(MIN_DB, Math.min(MAX_DB, g.gain - dy * (MAX_DB - MIN_DB) / 260 / (ev.shiftKey ? 5 : 1)));
+      place(); applyGains();
+    };
+    const up = () => { fader.removeEventListener("pointermove", move); fader.removeEventListener("pointerup", up); };
+    fader.addEventListener("pointermove", move);
+    fader.addEventListener("pointerup", up);
+  });
+  fader.addEventListener("dblclick", () => { if (useAuto) return; g.gain = g.start; place(); applyGains(); });
+  fader.addEventListener("wheel", (e) => {
+    if (useAuto) return;
+    e.preventDefault();
+    g.gain = Math.max(MIN_DB, Math.min(MAX_DB, g.gain - Math.sign(e.deltaY) * (e.shiftKey ? 0.1 : 0.5)));
+    place(); applyGains();
+  }, { passive: false });
+  const mb = el.querySelector(".m"), sb = el.querySelector(".s");
+  mb.classList.toggle("on", g.mute); sb.classList.toggle("on", g.solo);
+  mb.onclick = () => { g.mute = !g.mute; mb.classList.toggle("on", g.mute); applyGains(); };
+  sb.onclick = (e) => {
+    if (!e.ctrlKey && !e.metaKey) for (const o of groups) if (o !== g && o.solo) { o.solo = false; o.faderEl.closest(".strip").querySelector(".s").classList.remove("on"); }
+    g.solo = !g.solo; sb.classList.toggle("on", g.solo); applyGains();
+  };
+  return el;
+}
+
+function renderTracks() {
+  const v = S.song;
+  $("tracksNote").textContent = `(${v.leaves.length} tracks in ${groups.length} groups)`;
+  const names = Object.fromEntries(groups.map((g) => [g.id, g.name]));
+  $("tracks").innerHTML = v.leaves.map((lf) => `<tr>
+      <td>${lf.index}</td><td>${esc(lf.name)}</td>
+      <td class="${lf.role !== lf.autoRole ? "changed" : ""}"><select data-leaf="${lf.index}">${v.roles.map(([r, n]) => `<option value="${r}" ${r === lf.role ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></td>
+      <td>${lf.role === "vocal" ? `<input type="checkbox" data-lead="${lf.index}" ${lf.lead ? "checked" : ""}>` : ""}</td>
+      <td>${esc(names[lf.group] || lf.group)}</td></tr>`).join("");
+  for (const s of $("tracks").querySelectorAll("select")) s.onchange = () => changeRole({ leaf: +s.dataset.leaf, role: s.value });
+  for (const c of $("tracks").querySelectorAll("input[data-lead]")) c.onchange = () => changeRole({ leaf: +c.dataset.lead, lead: c.checked });
+}
+
+async function changeRole(change) {
+  if (busy) return;
+  busy = true;
+  const was = playing, at = position();
+  if (playing) pause();
+  $("hint").textContent = "Rebuilding the groups…";
+  try {
+    const v = await api("/api/role", { song: S.song.id, ...change });
+    S.song = v;
+    await loadGroups(v, true);
+    renderSong();
+    applyGains(false);
+    if (was) play(at); else pos = at;
+  } catch (e) {
+    $("hint").innerHTML = `<span class="err">${esc(e.message)}</span>`;
+  } finally {
+    busy = false;
+  }
+}
+
+function setAB() {
+  $("aBtn").classList.toggle("on", !useAuto);
+  $("bBtn").classList.toggle("on", useAuto);
+  for (const g of groups) g.faderEl?.classList.toggle("locked", useAuto);
+  applyGains();
+}
+
+// Timeline -----------------------------------------------------------------------------------------------------
+
+const cv = $("timeline");
+function draw() {
+  if (!S) return;
+  const dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+  const g = cv.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const env = S.song.envelope, d = duration();
+  const top = Math.max(...env.filter((v) => v != null));
+  const x = (t) => (t / d) * w;
+  if (loop.b > loop.a) {
+    g.fillStyle = loop.on ? "#f59a3c33" : "#ffffff12";
+    g.fillRect(x(loop.a), 0, x(loop.b) - x(loop.a), h);
+  }
+  g.fillStyle = "#5aa7e6aa";
+  const step = S.song.envelopeS;
+  for (let i = 0; i < env.length; i++) {
+    const v = env[i] == null ? 0 : Math.max(0, 1 + (env[i] - top) / 40);
+    const bh = v * (h - 8);
+    g.fillRect(x(i * step), (h - bh) / 2, Math.max(1, x(step) - 0.5), bh);
+  }
+  g.fillStyle = "#f59a3c";
+  g.fillRect(x(position()) - 1, 0, 2, h);
+  const p = position(), f = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+  $("time").textContent = `${f(p)} / ${f(d)}`;
+}
+
+let dragFrom = null;
+cv.addEventListener("pointerdown", (e) => {
+  cv.setPointerCapture(e.pointerId);
+  dragFrom = { x: e.offsetX, t: (e.offsetX / cv.clientWidth) * duration() };
+});
+cv.addEventListener("pointermove", (e) => {
+  if (!dragFrom || Math.abs(e.offsetX - dragFrom.x) < 4) return;
+  const t = Math.max(0, Math.min(duration(), (e.offsetX / cv.clientWidth) * duration()));
+  loop.a = Math.min(dragFrom.t, t); loop.b = Math.max(dragFrom.t, t);
+  dragFrom.dragged = true;
+  draw();
+});
+cv.addEventListener("pointerup", (e) => {
+  if (!dragFrom) return;
+  if (dragFrom.dragged) {
+    loop.on = true; $("loopBtn").classList.add("on");
+    if (playing) play(loop.a); else pos = loop.a;
+  } else {
+    seek(dragFrom.t);
+  }
+  dragFrom = null;
+  draw();
+});
+
+function tick() {
+  draw();
+  const data = new Float32Array(2048);
+  for (const g of groups) {
+    if (!g.analyser || !g.meterEl) continue;
+    g.analyser.getFloatTimeDomainData(data);
+    let s = 0;
+    for (let i = 0; i < data.length; i++) s += data[i] * data[i];
+    const db = 10 * Math.log10(s / data.length + 1e-12);
+    g.meterEl.style.height = `${playing ? Math.max(0, Math.min(1, (db + 50) / 50)) * 260 : 0}px`;
+  }
+  requestAnimationFrame(tick);
+}
+
+// Saving, skipping, learning -----------------------------------------------------------------------------------
+
+function dialog(html) { $("dialog").innerHTML = html; $("overlay").classList.add("show"); }
+function closeDialog() { $("overlay").classList.remove("show"); }
+
+const START_NAMES = { scrambled: "a scrambled balance", auto: "Auto Mix's balance", original: "your FLP's balance" };
+
+async function save() {
+  if (busy || !S || $("overlay").classList.contains("show")) return;
+  busy = true;
+  try {
+    const gains = Object.fromEntries(groups.map((g) => [g.id, +g.gain.toFixed(2)]));
+    const r = await api("/api/save", { session: S.session, gains, seconds: Math.round((performance.now() - began) / 1000) });
+    showStats(r.stats);
+    const bar = (v) => {
+      const c = Math.max(-12, Math.min(12, v)), l = c < 0 ? 50 + (c / 12) * 50 : 50, wd = Math.abs(c) / 12 * 50;
+      return `<div class="dev"><span style="left:${l}%;width:${wd}%"></span><em>${v > 0 ? "+" : ""}${v.toFixed(1)}</em></div>`;
+    };
+    dialog(`<h2>Saved</h2>
+      <p>This one started from <b>${START_NAMES[r.start] || r.start}</b>.${r.repeat ? " It was a <b>hidden repeat</b> of a song you'd mixed before." : ""}</p>
+      ${r.vsRepeat != null ? `<p>Your two mixes of it differ by <b>${r.vsRepeat.toFixed(1)} dB</b> a group (after the overall level).</p>` : ""}
+      <p class="note">Where yours sits relative to the rest of your mix, against each (dB; the overall level taken out):</p>
+      <div class="cmp"><div class="h"></div><div class="h">vs Auto Mix (${r.rmsAuto.toFixed(1)} dB RMS)</div><div class="h">vs your FLP (${r.rmsOriginal.toFixed(1)} dB RMS)</div>
+      ${r.compare.map((c) => `<div>${esc(c.name)}</div>${bar(c.vsAuto)}${bar(c.vsOriginal)}`).join("")}</div>
+      <div class="actions"><button class="primary" id="nextBtn">Next song<kbd>Enter</kbd></button></div>`);
+    $("nextBtn").onclick = () => { closeDialog(); nextSong(); };
+    if (playing) pause();
+  } catch (e) {
+    dialog(`<h2>Couldn't save</h2><p class="err">${esc(e.message)}</p><div class="actions"><button onclick="closeDialog()">Close</button></div>`);
+  } finally {
+    busy = false;
+  }
+}
+
+function skip() {
+  dialog(`<h2>Skip this song</h2>
+    <p class="note">Why? (helps tell a broken render from a song you just don't want to mix)</p>
+    <textarea id="reason" rows="2" placeholder="e.g. vocals missing, sounds wrong, a beat with no vocal"></textarea>
+    <p><label><input type="checkbox" id="exclude"> It's broken: leave it out of learning altogether</label></p>
+    <div class="actions"><button onclick="closeDialog()">Cancel</button><button class="primary" id="doSkip">Skip</button></div>`);
+  $("reason").focus();
+  $("doSkip").onclick = async () => {
+    const r = await api("/api/skip", { session: S.session, reason: $("reason").value, exclude: $("exclude").checked });
+    showStats(r.stats);
+    closeDialog();
+    nextSong();
+  };
+}
+
+async function learnNow() {
+  $("learnBtn").disabled = true;
+  dialog(`<h2>Learning…</h2><p class="note">Fitting on every mix, each song predicted by a model that never saw it.</p>`);
+  try {
+    const r = await api("/api/learn", {});
+    showStats(r.stats);
+    dialog(`<h2>${r.better ? "Auto Mix learned something" : "Not better than the rules yet"}</h2><pre>${esc(r.report)}</pre>
+      <div class="actions"><button onclick="closeDialog()">Close</button></div>`);
+  } catch (e) {
+    dialog(`<h2>Couldn't learn</h2><p class="err">${esc(e.message)}</p><div class="actions"><button onclick="closeDialog()">Close</button></div>`);
+  } finally {
+    $("learnBtn").disabled = false;
+  }
+}
+
+// Wiring -------------------------------------------------------------------------------------------------------
+
+$("playBtn").onclick = () => (playing ? pause() : play());
+$("loopBtn").onclick = () => {
+  loop.on = !loop.on; $("loopBtn").classList.toggle("on", loop.on);
+  if (playing) play(position()); draw();
+};
+$("aBtn").onclick = () => { useAuto = false; setAB(); };
+$("bBtn").onclick = () => { useAuto = true; setAB(); };
+$("glueBtn").onclick = () => { ensureAudio(); glueOn = !glueOn; $("glueBtn").classList.toggle("on", glueOn); routeGlue(); };
+$("holdBtn").onclick = () => { holdLoudness = !holdLoudness; $("holdBtn").classList.toggle("on", holdLoudness); applyGains(); };
+$("saveBtn").onclick = save;
+$("skipBtn").onclick = skip;
+$("learnBtn").onclick = learnNow;
+$("reportBtn").onclick = () => dialog(`<h2>Last learning report</h2><pre>${esc(lastReport || "")}</pre><div class="actions"><button onclick="closeDialog()">Close</button></div>`);
+$("resetRoles").onclick = () => changeRole({ reset: true });
+$("overlay").addEventListener("pointerdown", (e) => { if (e.target === $("overlay") && !$("nextBtn")) closeDialog(); });
+
+addEventListener("keydown", (e) => {
+  if (e.target.matches("textarea, input, select")) return;
+  if ($("overlay").classList.contains("show")) {
+    if (e.key === "Enter" && $("nextBtn")) { e.preventDefault(); $("nextBtn").click(); }
+    else if (e.key === "Escape" && !$("nextBtn")) closeDialog();
+    return;
+  }
+  if (!S) return;
+  if (e.code === "Space") { e.preventDefault(); playing ? pause() : play(); }
+  else if (e.key === "b" || e.key === "B") { useAuto = !useAuto; setAB(); }
+  else if (e.key === "l" || e.key === "L") $("loopBtn").click();
+  else if (e.key === "Enter") { e.preventDefault(); save(); }
+});
+addEventListener("resize", draw);
+
+// The first song waits for a click: browsers start audio only after one
+(async () => {
+  try {
+    const st = await api("/api/stats");
+    showStats(st);
+    $("loading").innerHTML = st.ready
+      ? `<p>${st.ready} songs ready to mix.</p><button class="primary" id="go">Start</button>`
+      : `<p>No songs ready yet: batch_render.py is still rendering them.</p><button id="go">Try again</button>`;
+    $("go").onclick = () => nextSong();
+  } catch (e) {
+    $("loading").innerHTML = `<span class="err">${esc(e.message)}</span>`;
+  }
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
