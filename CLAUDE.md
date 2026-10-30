@@ -30,6 +30,9 @@ before working on its code** (the suite folders' own CLAUDE.md files load them f
 
 Keep this file to what every suite shares (under 40k characters): a suite's details go in its guide.
 
+**FL Studio's plugins** (YT-Mix, YT-Fill) are in `fl-plugins/`, with a README of their own: Python, JUCE and an FL
+script, outside the app's build, tests and layering.
+
 ## Commands
 
 ```bash

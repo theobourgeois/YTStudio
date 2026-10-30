@@ -1,0 +1,18 @@
+plugin/build/
+__pycache__/
+
+# A person's songs, and where they are on their computer
+train/songs.json
+train/candidates.json
+train/ytlink_tracks.json
+train/all_flps.txt
+train/manual_matches.json
+test/state*.json
+test/*.png
+screenshots/
+test/*.out
+test/*.reg
+test/stems*/
+*.flp
+*.wav
+*.ogg
