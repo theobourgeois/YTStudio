@@ -62,6 +62,8 @@ def _text(v):
 
 
 NOT_SOUNDS = (3, 4, 5)  # layers, audio clips, automation clips
+UNTITLED = "untitled"  # what FL's autosaves call a project that's never been saved
+UNSAVED_MINIMUM = 0.8
 
 
 def read_channels(raw):
@@ -178,10 +180,25 @@ def _autosaves(project):
     return glob.glob(os.path.join(glob.escape(folder), glob.escape(project) + " (autosaved at *).flp"))
 
 
-def newest(project):
+def _files(project, since):
+    """The files that could be this project. One that's never been saved has only FL's autosaves of "untitled", and every
+    unsaved project has shared that name, so only those written since `since` (when this FL started) can be this one."""
+    if project:
+        return candidates(project) + _autosaves(project)
+    out = []
+    for p in _autosaves(UNTITLED):
+        try:
+            if os.path.getmtime(p) >= since:
+                out.append(p)
+        except OSError:
+            continue
+    return out
+
+
+def newest(project, since=0):
     """When any file this project could be was last written (0 for none): cheap enough to ask every few seconds."""
     times = []
-    for p in candidates(project) + _autosaves(project):
+    for p in _files(project, since):
         try:
             times.append(os.path.getmtime(p))
         except OSError:
@@ -203,13 +220,14 @@ def overlap(saved, names):
     return min(sum(1 for n in names if n in known) / len(names), sum(1 for n in theirs if n in here) / len(theirs))
 
 
-def find(project, names, minimum=0.6):
+def find(project, names, since=0, minimum=0.6):
     """The newest file for this project whose channels are the ones FL has now: (path, channels), else (None, []).
-    The names keep a same-named project in another folder from being taken for it."""
+    The names keep a same-named project in another folder from being taken for it. No project is an unsaved one (see
+    `_files`), and it must agree more closely: "untitled" says nothing, where a project's own name does."""
     if not project:
-        return None, []
+        minimum = max(minimum, UNSAVED_MINIMUM)
     found = []
-    for p in candidates(project) + _autosaves(project):
+    for p in _files(project, since):
         try:
             saved = read_file(p)
         except (OSError, ValueError, IndexError, struct.error):

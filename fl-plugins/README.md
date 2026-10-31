@@ -64,6 +64,9 @@ it, **Undo fill** puts the whole mixer back. You can have it and YT-Mix open at 
   without an error: the plugin says so when nothing changed.
 - A project is only found among the folders FL knows (its recents, Windows' Recent, `~/Music/Flps`, autosaves): open
   a copy from anywhere else and it says no saved project matches.
+- A project that's never been saved is read from FL's `untitled (autosaved at …)` files, only those written since this
+  FL started and with nearly the same channels (every unsaved project is "untitled" to FL). Press New in FL and the
+  last untitled project's autosave can still answer if its channels are named the same, until FL autosaves the new one.
 
 ## Teaching it your taste
 
