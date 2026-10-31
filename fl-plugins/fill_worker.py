@@ -14,6 +14,7 @@ sys.path.insert(0, HERE)
 
 import fillinserts  # noqa: E402
 import flpread  # noqa: E402
+import link  # noqa: E402
 from worker_base import BaseWorker, log, main, send  # noqa: E402
 
 
@@ -55,8 +56,13 @@ class FillWorker(BaseWorker):
         takes = sum(1 for c in f["state"]["channels"] if c["type"] == fillinserts.AUDIO_CLIP)
         lines = []
         if f["path"]:
-            lines.append("Serum presets from %s, saved %s. Save first if you've changed sounds since." % (
-                os.path.basename(f["path"]), time.strftime("%H:%M", time.localtime(os.path.getmtime(f["path"])))))
+            at = time.strftime("%H:%M", time.localtime(os.path.getmtime(f["path"])))
+            if f["project"]:
+                lines.append("Serum presets from %s, saved %s. Save first if you've changed sounds since." % (
+                    os.path.basename(f["path"]), at))
+            else:
+                lines.append("This project isn't saved yet, so Serum presets are from FL's autosave at %s. The list "
+                             "follows FL's next autosave, or a save." % at)
         else:
             lines.append("No saved project matches this one, so Serum channels have no preset names: save it and the list will follow.")
         notes = []
@@ -92,11 +98,12 @@ class FillWorker(BaseWorker):
         if project != f["project"]:
             self.run("Reading the project", self.fill_scan)
             return
-        written = flpread.newest(project) if project else 0
+        since = link.process_started(self.link.pid)
+        written = flpread.newest(project, since)
         if written == f["written"]:
             return
         f["written"] = written
-        path, saved = flpread.find(project, f["soundNames"])
+        path, saved = flpread.find(project, f["soundNames"], since)
         if said_of_sounds(saved) != f["said"]:
             self.run("Saved: reading the project", self.fill_scan)
         else:
@@ -136,9 +143,10 @@ class FillWorker(BaseWorker):
         state = self.link.call("fillState", timeout=30)
         names = [c["name"] for c in state["channels"]]
         project = self.project()
-        written = flpread.newest(project) if project else 0  # before reading: a save in between is noticed
+        since = link.process_started(self.link.pid)
+        written = flpread.newest(project, since)  # before reading: a save in between is noticed
         sound_names = [c["name"] for c in state["channels"] if c["type"] in fillinserts.SOUND_TYPES]
-        path, saved = flpread.find(project, sound_names)
+        path, saved = flpread.find(project, sound_names, since)
         sounds = fillinserts.make_sounds(state["channels"], state["tracks"], flpread.match(names, saved))
         key = fillinserts.jev_key()
         categories = fillinserts.SerumCategories()

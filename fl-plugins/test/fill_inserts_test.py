@@ -3,12 +3,14 @@ import os
 import struct
 import sys
 import tempfile
+import time
 import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import fillinserts as fi  # noqa: E402
 import flpread  # noqa: E402
+import link  # noqa: E402
 
 
 def track(index, name=None, routes=None, fx=0, color=0):
@@ -116,8 +118,8 @@ def test_the_list_follows_a_save():
 
     files = {"written": 0, "saved": []}
     was = fw.flpread.newest, fw.flpread.find, wb.sink, fi.jev_key, fi.serum_db_path
-    fw.flpread.newest = lambda project: files["written"]
-    fw.flpread.find = lambda project, names: (os.path.abspath(__file__), files["saved"]) if files["saved"] else (None, [])
+    fw.flpread.newest = lambda project, since: files["written"]
+    fw.flpread.find = lambda project, names, since: (os.path.abspath(__file__), files["saved"]) if files["saved"] else (None, [])
     wb.sink = lambda ev, fields: None
     fi.jev_key = lambda: None
     fi.serum_db_path = lambda: None
@@ -535,7 +537,57 @@ def test_find_picks_the_newest_file_with_these_channels():
             assert flpread.find("song", ["Nothing"]) == (None, [])
         finally:
             flpread.candidates, flpread._autosaves = keep
-        assert flpread.find(None, ["Serum 2"]) == (None, [])
+
+
+def test_an_unsaved_project_reads_only_this_fl_sessions_autosaves():
+    """Every unsaved project autosaves as "untitled" and Serums are all called "Serum 2", so an old one must not answer."""
+    with tempfile.TemporaryDirectory() as d:
+        def write(name, preset, when):
+            path = os.path.join(d, name)
+            with open(path, "wb") as f:
+                f.write(flp((64, 0), (21, 2), (203, u16("Serum 2")), (213, serum(preset))))
+            os.utime(path, (when, when))
+            return path
+
+        old = write("untitled (autosaved at 09h00).flp", "From last week", 1000)
+        now = write("untitled (autosaved at 14h00).flp", "From today", 5000)
+        named = write("untitled.flp", "A saved file called untitled", 9000)
+        asked = []
+        keep = flpread.candidates, flpread._autosaves
+        flpread.candidates = lambda p: [named]
+        flpread._autosaves = lambda p: asked.append(p) or [old, now]
+        try:
+            path, chans = flpread.find(None, ["Serum 2"], since=2000)
+            assert path == now and chans[0]["preset"] == "From today"
+            assert asked == ["untitled"]
+            assert flpread.newest(None, 2000) == 5000
+            flpread._autosaves = lambda p: [old]  # this session hasn't autosaved yet
+            assert flpread.find(None, ["Serum 2"], since=2000) == (None, [])
+            assert flpread.newest(None, 2000) == 0
+        finally:
+            flpread.candidates, flpread._autosaves = keep
+
+
+def test_an_unsaved_project_must_agree_more_closely():
+    saved = [{"name": n, "type": 2, "preset": None, "sample": None} for n in "ABCDE"]
+    keep = flpread.read_file, flpread._files, os.path.getmtime
+    flpread.read_file = lambda p: saved
+    flpread._files = lambda project, since: ["file"]
+    os.path.getmtime = lambda p: 1.0
+    try:
+        three_of_five = ["A", "B", "C", "X", "Y"]
+        assert flpread.find("song", three_of_five)[0] == "file"
+        assert flpread.find(None, three_of_five)[0] is None
+        assert flpread.find(None, ["A", "B", "C", "D", "Y"])[0] == "file"
+    finally:
+        flpread.read_file, flpread._files, os.path.getmtime = keep
+
+
+def test_process_started_is_a_file_time():
+    """The running process's start is before now and recent; one that doesn't exist counts nothing as written since it."""
+    started = link.process_started(os.getpid())
+    assert time.time() - 3600 < started <= time.time()
+    assert link.process_started(0xFFFFFFF0) == float("inf")
 
 
 def main():

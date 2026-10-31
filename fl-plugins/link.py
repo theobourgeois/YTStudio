@@ -16,7 +16,9 @@ import _winapi
 
 EXCHANGE = os.path.join(os.path.expanduser("~"), "Documents", "YTStudio Auto Mix")
 PROCESS_DUP_HANDLE = 0x0040
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 DUPLICATE_CLOSE_SOURCE = 0x1
+FILETIME_TO_UNIX_S = 11644473600
 STALE_S = 60.0  # far longer than any wait for the script to pick a link up
 
 _user32 = ctypes.windll.user32
@@ -63,6 +65,26 @@ def project_name(title):
     """'song.flp - FL Studio 2025' -> 'song' (None for an unsaved project)."""
     head = title.split(" - FL Studio")[0].strip()
     return head[:-4] if head.lower().endswith(".flp") else None
+
+
+def process_started(pid):
+    """When this process started, in the seconds a file's time is in. Infinity if Windows won't say, so that nothing
+    counts as written since."""
+    kernel = ctypes.WinDLL("kernel32")
+    kernel.OpenProcess.argtypes = (wt.DWORD, wt.BOOL, wt.DWORD)
+    kernel.OpenProcess.restype = wt.HANDLE
+    kernel.GetProcessTimes.argtypes = (wt.HANDLE,) + (ctypes.POINTER(wt.FILETIME),) * 4
+    kernel.CloseHandle.argtypes = (wt.HANDLE,)
+    process = kernel.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not process:
+        return float("inf")
+    try:
+        started, ended, in_kernel, in_user = (wt.FILETIME() for _ in range(4))
+        if not kernel.GetProcessTimes(process, started, ended, in_kernel, in_user):
+            return float("inf")
+    finally:
+        kernel.CloseHandle(process)
+    return ((started.dwHighDateTime << 32) | started.dwLowDateTime) / 1e7 - FILETIME_TO_UNIX_S
 
 
 class Link:
